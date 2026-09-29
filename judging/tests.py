@@ -3,10 +3,10 @@ from django.utils import timezone
 import json
 
 from accounts.models import User
-from events.models import Event, EventMembership, Rubric, Criterion
+from events.models import Event, EventMembership, Rubric, Criterion, Track
 from teams.models import Team
 from projects.models import Project
-from judging.models import Assignment, Review
+from judging.models import Assignment, Review, JudgeTrackScope
 from judging.scoring import compute_weighted_score, compute_pool_results
 
 
@@ -43,11 +43,16 @@ class JudgingAuthorizationTests(TestCase):
         EventMembership.objects.create(user=self.judge_a, event=self.event, role='judge')
         EventMembership.objects.create(user=self.judge_b, event=self.event, role='judge')
         EventMembership.objects.create(user=self.participant, event=self.event, role='participant')
+        track = Track.objects.create(event=self.event, name='Tools')
+        for judge in (self.judge_a, self.judge_b):
+            scope = JudgeTrackScope.objects.create(event=self.event, judge=judge)
+            scope.tracks.add(track)
 
         self.team = Team.objects.create(event=self.event, captain=self.participant, name='Team One')
         self.project = Project.objects.create(
             event=self.event,
             team=self.team,
+            track=track,
             title='Project One',
             status='submitted',
             eligibility='eligible'
@@ -149,3 +154,23 @@ class ScoringEngineTests(TestCase):
         self.assertTrue(results['judge_calibrated']['j2'])
         self.assertTrue(results['judge_calibrated']['j3'])
         self.assertTrue(results['is_graph_connected'])
+
+    def test_unreviewed_project_has_no_score_or_rank(self):
+        projects = [{'id': 'p1', 'title': 'Reviewed'}, {'id': 'p2', 'title': 'No reviews'}]
+        reviews = [{'id': 'r1', 'judge_id': 'j1', 'project_id': 'p1',
+                    'criteria_scores': {'c1': 3, 'c2': 5}}]
+        rows = compute_pool_results(projects, reviews, self.criteria_defs)['projects']
+        missing = next(row for row in rows if row['project_id'] == 'p2')
+        self.assertIsNone(missing['raw_score'])
+        self.assertIsNone(missing['raw_rank'])
+        self.assertIsNone(missing['adjusted_rank'])
+
+    def test_tracks_get_independent_first_places(self):
+        projects = [{'id': 'p1', 'title': 'A', 'track_id': 'a'},
+                    {'id': 'p2', 'title': 'B', 'track_id': 'b'}]
+        reviews = [{'id': 'r1', 'judge_id': 'j1', 'project_id': 'p1',
+                    'criteria_scores': {'c1': 4, 'c2': 5}},
+                   {'id': 'r2', 'judge_id': 'j2', 'project_id': 'p2',
+                    'criteria_scores': {'c1': 2, 'c2': 5}}]
+        rows = compute_pool_results(projects, reviews, self.criteria_defs)['projects']
+        self.assertEqual({row['raw_rank'] for row in rows}, {1})

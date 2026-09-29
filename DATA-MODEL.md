@@ -285,9 +285,10 @@ Individual project standing within a result snapshot.
 - `id` (`VARCHAR(64)`, Primary Key): Generated with `row_` prefix.
 - `snapshot_id` (`VARCHAR(64)`, Foreign Key -> `ResultSnapshot.id`, `ON DELETE CASCADE`).
 - `project_id` (`VARCHAR(64)`, Foreign Key -> `Project.id`, `ON DELETE CASCADE`).
-- `raw_score` (`FLOAT`): Weighted mean of submitted judge scores (0-100).
+- `raw_score` (`FLOAT`, Nullable): Weighted mean of eligible submitted judge scores (0-100); null when unreviewed.
 - `adjusted_score` (`FLOAT`, Nullable): Overlap-bias normalized score.
-- `raw_rank` (`INTEGER`): Final ordinal position based on raw score.
+- `raw_rank` (`INTEGER`, Nullable): Competition rank within the track; null when unreviewed.
+- `project_title`, `project_tagline`, `track_name` (`VARCHAR`): Labels copied into the publication snapshot so later edits do not rewrite public history.
 - `adjusted_rank` (`INTEGER`, Nullable): Final ordinal position based on adjusted score.
 - `review_count` (`INTEGER`, Default `0`): Total submitted reviews.
 - `eligible_review_count` (`INTEGER`, Default `0`): Reviews from eligible calibrated judges.

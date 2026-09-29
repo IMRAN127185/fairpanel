@@ -1,11 +1,14 @@
 import json
+import hashlib
+from django.db import transaction
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.http import Http404, HttpResponseForbidden
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils import timezone
-from django.db.models import Q, Count
+from django.db.models import Q, Count, F
 from django.core.paginator import Paginator
 
 from events.models import Event, EventMembership, Track, Prize, CustomQuestion, Rubric, Criterion
@@ -46,7 +49,7 @@ def how_it_works_page(request):
 
 
 def public_events_list(request):
-    events = Event.objects.all().order_by('-created_at')
+    events = Event.objects.filter(status__in=['active', 'judging', 'published']).order_by('-created_at')
     return render(request, 'fairpanel/events/list.html', {'events': events})
 
 
@@ -86,6 +89,9 @@ def public_gallery(request):
     event_id = request.GET.get('event')
     search_q = request.GET.get('q', '').strip()
     track_filter = request.GET.get('track', '').strip()
+    sort = request.GET.get('sort', 'newest')
+    if sort not in ('newest', 'title'):
+        sort = 'newest'
 
     qs = Project.objects.filter(status='submitted', eligibility='eligible').select_related('team', 'track', 'event')
 
@@ -100,24 +106,26 @@ def public_gallery(request):
             Q(title__icontains=search_q) |
             Q(tagline__icontains=search_q) |
             Q(description__icontains=search_q) |
-            Q(tech_tags__icontains=search_q)
+            Q(tech_tags__icontains=search_q) |
+            Q(team__name__icontains=search_q)
         )
 
-    # Order stably
-    qs = qs.order_by('id')
+    qs = qs.order_by('title', 'id') if sort == 'title' else qs.order_by('-submitted_at', 'id')
 
     paginator = Paginator(qs, 24)
     page_number = request.GET.get('page', 1)
     projects_page = paginator.get_page(page_number)
 
-    all_tracks = Track.objects.all()
-    events = Event.objects.all()
+    all_tracks = Track.objects.filter(event__status__in=['active', 'judging', 'published']).order_by('name')
+    events = Event.objects.filter(status__in=['active', 'judging', 'published']).order_by('-created_at')
 
     context = {
         'projects': projects_page,
         'selected_event_id': event_id,
         'search_q': search_q,
         'selected_track': track_filter,
+        'selected_sort': sort,
+        'result_count': paginator.count,
         'tracks': all_tracks,
         'events': events,
     }
@@ -131,7 +139,7 @@ def public_project_detail(request, project_id):
     is_organizer = request.user.is_authenticated and project.event.memberships.filter(user=request.user, role='organizer').exists()
 
     # Drafts invisible to public
-    if project.status == 'draft' and not (is_team_member or is_organizer):
+    if (project.status != 'submitted' or project.eligibility != 'eligible') and not (is_team_member or is_organizer):
         raise Http404("Project not found")
 
     team_members = project.team.memberships.select_related('user').all() if project.team else []
@@ -149,10 +157,15 @@ def public_event_results(request, event_id):
     event = get_object_or_404(Event, id=event_id)
     snapshot = event.result_snapshots.order_by('-revision').first()
 
+    rows = []
+    if snapshot:
+        rank_field = 'adjusted_rank' if snapshot.ranking_method == 'adjusted' else 'raw_rank'
+        rows = snapshot.rows.select_related('project').order_by(
+            'project__track_id', F(rank_field).asc(nulls_last=True), 'project_id')
     context = {
         'event': event,
         'snapshot': snapshot,
-        'rows': snapshot.rows.select_related('project').order_by('raw_rank') if snapshot else []
+        'rows': rows,
     }
     return render(request, 'fairpanel/events/results.html', context)
 
@@ -187,7 +200,7 @@ def login_workspace(request, workspace_role=None):
 
             login(request, user)
             next_url = request.GET.get('next')
-            if next_url:
+            if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}, require_https=request.is_secure()):
                 return redirect(next_url)
 
             if target_role == 'organizer':
@@ -278,6 +291,11 @@ def team_invite_accept_page(request, token):
         if not request.user.is_authenticated:
             return redirect(f"/login/participant/?next=/invites/team/{token}/")
 
+        existing = EventMembership.objects.filter(user=request.user, event=event).first()
+        if existing and existing.role != 'participant':
+            return HttpResponseForbidden('You already have another role in this event.')
+        if invite.invited_email and invite.invited_email.lower() != request.user.email.lower():
+            return HttpResponseForbidden('This invitation is for a different account.')
         if TeamMembership.objects.filter(team__event=event, user=request.user).exists():
             messages.error(request, "You are already a member of a team in this event.")
             return redirect('participant_dashboard')
@@ -307,12 +325,13 @@ def judge_invite_accept_page(request, token):
         if not request.user.is_authenticated:
             return redirect(f"/login/judge/?next=/invites/judge/{token}/")
 
+        existing = EventMembership.objects.filter(user=request.user, event=event).first()
+        if existing and existing.role != 'judge':
+            return HttpResponseForbidden('You already have another role in this event.')
+        if invite.invited_email and invite.invited_email.lower() != request.user.email.lower():
+            return HttpResponseForbidden('This invitation is for a different account.')
         with transaction.atomic():
-            EventMembership.objects.update_or_create(
-                user=request.user,
-                event=event,
-                defaults={'role': 'judge'}
-            )
+            EventMembership.objects.get_or_create(user=request.user, event=event, defaults={'role': 'judge'})
             scope, _ = JudgeTrackScope.objects.get_or_create(judge=request.user, event=event)
             if invite.tracks:
                 trks = Track.objects.filter(id__in=invite.tracks, event=event)
@@ -361,6 +380,8 @@ def participant_dashboard(request):
 @login_required
 def participant_team(request, event_id):
     event = get_object_or_404(Event, id=event_id)
+    if not event.memberships.filter(user=request.user, role='participant').exists():
+        return HttpResponseForbidden('Participant access required.')
     team_mem = TeamMembership.objects.filter(team__event=event, user=request.user).select_related('team').first()
     team = team_mem.team if team_mem else None
 
@@ -380,6 +401,8 @@ def participant_team(request, event_id):
 @login_required
 def participant_submission(request, event_id):
     event = get_object_or_404(Event, id=event_id)
+    if not event.memberships.filter(user=request.user, role='participant').exists():
+        return HttpResponseForbidden('Participant access required.')
     team_mem = TeamMembership.objects.filter(team__event=event, user=request.user).select_related('team').first()
     if not team_mem:
         messages.warning(request, "Please create or join a team before submitting a project.")
@@ -457,11 +480,11 @@ def judge_review_project(request, project_id):
     event = project.event
 
     assignment = Assignment.objects.filter(event=event, project=project, judge=request.user).first()
-    if not assignment and not request.user.is_staff:
-        # Check if judge in event
-        if not event.memberships.filter(user=request.user, role='judge').exists():
-            return HttpResponseForbidden("Access denied: You are not an assigned judge for this project.")
-        assignment = Assignment.objects.create(event=event, project=project, judge=request.user, status='assigned')
+    if not assignment or not event.memberships.filter(user=request.user, role='judge').exists():
+        return HttpResponseForbidden("Access denied: You are not an assigned judge for this project.")
+    if project.track_id and not JudgeTrackScope.objects.filter(
+            event=event, judge=request.user, tracks=project.track).exists():
+        return HttpResponseForbidden('This project is outside your assigned track.')
 
     review = getattr(assignment, 'review', None)
 
@@ -492,6 +515,8 @@ def judge_review_project(request, project_id):
 
 @login_required
 def judge_settings(request):
+    if not request.user.memberships.filter(role='judge').exists():
+        return HttpResponseForbidden('Judge access required.')
     settings_obj, _ = WorkspaceSettings.objects.get_or_create(
         user=request.user,
         workspace_type='judge',
@@ -521,13 +546,33 @@ def organizer_dashboard(request):
 
 @login_required
 def organizer_event_create(request):
+    error = None
     if request.method == 'POST':
+        from api.views import parse_event_datetime, validate_event_schedule
         name = request.POST.get('name', '').strip()
         description = request.POST.get('description', '').strip()
         timezone_str = request.POST.get('timezone', 'UTC')
-        team_capacity = int(request.POST.get('team_capacity', 4))
+        try:
+            team_capacity = int(request.POST.get('team_capacity', 4))
+            close_at = parse_event_datetime(request.POST.get('submissions_close'))
+        except (TypeError, ValueError, OverflowError):
+            error = 'Enter a valid capacity and UTC submission deadline.'
+            team_capacity, close_at = 4, None
 
-        if name:
+        proposed = Event(owner=request.user, name=name, timezone=timezone_str,
+                         team_capacity=team_capacity, submissions_close=close_at)
+        if not error:
+            error = validate_event_schedule(proposed)
+        if not name:
+            error = 'Event name is required.'
+        if not close_at and not error:
+            error = 'Set a submission deadline before creating an event.'
+        if not error:
+            tracks = [item.strip() for item in request.POST.get('tracks', '').splitlines() if item.strip()]
+            prizes = [item.strip() for item in request.POST.get('prizes', '').splitlines() if item.strip()]
+            if not tracks:
+                error = 'Add at least one track.'
+        if not error:
             with transaction.atomic():
                 event = Event.objects.create(
                     owner=request.user,
@@ -535,8 +580,13 @@ def organizer_event_create(request):
                     description=description,
                     timezone=timezone_str,
                     team_capacity=team_capacity,
+                    submissions_close=close_at,
                     status='active'
                 )
+                for track_name in tracks:
+                    Track.objects.create(event=event, name=track_name)
+                for prize_name in prizes:
+                    Prize.objects.create(event=event, name=prize_name)
                 EventMembership.objects.create(user=request.user, event=event, role='organizer')
                 rubric = Rubric.objects.create(event=event, version=1)
                 Criterion.objects.create(rubric=rubric, key='functionality', name='Functionality', weight=1.0)
@@ -546,7 +596,7 @@ def organizer_event_create(request):
             messages.success(request, f"Event '{name}' created successfully!")
             return redirect('organizer_event_detail', event_id=event.id)
 
-    return render(request, 'fairpanel/organizer/create_event.html')
+    return render(request, 'fairpanel/organizer/create_event.html', {'error': error})
 
 
 @login_required
@@ -653,9 +703,12 @@ def organizer_event_results(request, event_id):
         for c in rubric.criteria.all():
             criteria_defs[c.key] = {'min_score': c.min_score, 'max_score': c.max_score, 'weight': c.weight}
 
-    reviews = list(Review.objects.filter(project__event=event, status='submitted').values('id', 'project_id', 'judge_id', 'criteria_scores'))
+    reviews = list(Review.objects.filter(project__event=event, status='submitted',
+                                         assignment__status='completed').values(
+                                             'id', 'project_id', 'judge_id', 'criteria_scores'))
 
     calc = compute_pool_results(projects, reviews, criteria_defs, min_required_reviews=event.min_reviews_per_project)
+    from api.views import _results_fingerprint
 
     snapshot = event.result_snapshots.order_by('-revision').first()
 
@@ -664,6 +717,7 @@ def organizer_event_results(request, event_id):
         'preview': calc,
         'snapshot': snapshot,
         'review_count': len(reviews),
+        'preview_version': _results_fingerprint(event),
     }
     return render(request, 'fairpanel/organizer/results.html', context)
 
@@ -685,6 +739,8 @@ def organizer_event_audit(request, event_id):
 
 @login_required
 def organizer_settings(request):
+    if not request.user.memberships.filter(role='organizer').exists():
+        return HttpResponseForbidden('Organizer access required.')
     settings_obj, _ = WorkspaceSettings.objects.get_or_create(
         user=request.user,
         workspace_type='organizer',

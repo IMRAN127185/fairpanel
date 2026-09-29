@@ -1,203 +1,65 @@
 {% extends "fairpanel/base.html" %}
 {% load static %}
-
 {% block title %}Project Gallery — FairPanel{% endblock %}
-
-{% block extra_css %}
-<style>
-  .public-navbar {
-    height: 64px;
-    background: var(--surface-1);
-    border-bottom: 1px solid var(--border-subtle);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
-  }
-  .gallery-header {
-    margin-bottom: 32px;
-  }
-  .gallery-title {
-    font-size: 32px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    margin-bottom: 8px;
-  }
-  .gallery-subtitle {
-    color: var(--text-secondary);
-    font-size: 15px;
-  }
-  .gallery-filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin-bottom: 32px;
-    background: var(--surface-1);
-    padding: 16px;
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-subtle);
-  }
-  .gallery-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 24px;
-  }
-  .project-card {
-    background: var(--surface-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-lg);
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s;
-    text-decoration: none;
-    color: inherit;
-  }
-  .project-card:hover {
-    transform: translateY(-2px);
-    border-color: var(--border-active);
-  }
-  .project-card-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: #ffffff;
-    margin-bottom: 8px;
-  }
-  .project-card-tagline {
-    font-size: 14px;
-    color: var(--text-secondary);
-    line-height: 1.4;
-    margin-bottom: 16px;
-    flex: 1;
-  }
-  .project-card-footer {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--text-muted);
-    border-top: 1px solid var(--border-subtle);
-    padding-top: 12px;
-  }
-  .pagination {
-    display: flex;
-    justify-content: center;
-    gap: 8px;
-    margin-top: 40px;
-  }
-</style>
-{% endblock %}
-
+{% block body_class %}gallery-page{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'fairpanel/css/gallery.css' %}">{% endblock %}
 {% block navbar %}
-<nav class="public-navbar">
-  <a href="/" style="display: flex; align-items: center; gap: 10px; font-weight: 700;">
-    <svg viewBox="0 0 100 100" fill="none" style="width: 30px; height: 30px;">
-      <circle cx="50" cy="50" r="48" fill="#ffffff" />
-      <g transform="translate(14, 14) scale(0.72)">
-        <path d="M50 18 L50 78" stroke="#121214" stroke-width="6" stroke-linecap="round" />
-        <path d="M22 34 L78 34" stroke="#121214" stroke-width="5" stroke-linecap="round" />
-        <circle cx="50" cy="18" r="5" fill="#121214" />
-        <path d="M22 34 L12 56 L32 56 Z" fill="#121214" />
-        <path d="M78 34 L68 56 L88 56 Z" fill="#121214" />
-        <path d="M34 78 L66 78" stroke="#121214" stroke-width="6" stroke-linecap="round" />
-      </g>
-    </svg>
-    <span>FairPanel</span>
-  </a>
-  <div style="display: flex; gap: 16px; align-items: center;">
-    <a href="/events/" style="font-size: 14px; color: var(--text-secondary);">Events</a>
-    <a href="/projects/" style="font-size: 14px; color: #ffffff; font-weight: 600;">Projects</a>
-    <a href="/how-it-works/" style="font-size: 14px; color: var(--text-secondary);">How it works</a>
-    {% if user.is_authenticated %}
-      <a href="/dashboard/" class="btn btn-secondary btn-sm">Dashboard</a>
-    {% else %}
-      <a href="/login/" class="btn btn-primary btn-sm">Sign In</a>
-    {% endif %}
+<nav class="gallery-nav" aria-label="Public navigation">
+  <a class="gallery-brand" href="/"><span class="gallery-brand-mark">⚖</span> FairPanel</a>
+  <div class="gallery-nav-links">
+    <a href="/events/">Events</a><a href="/projects/" aria-current="page">Projects</a><a href="/how-it-works/">How it works</a>
+    <a class="gallery-nav-account" href="{% if user.is_authenticated %}/dashboard/{% else %}/login/{% endif %}">{% if user.is_authenticated %}Dashboard{% else %}Sign in{% endif %} ↗</a>
   </div>
 </nav>
 {% endblock %}
-
 {% block content %}
-<div style="max-width: 1280px; margin: 0 auto; padding: 40px 24px;">
-  <div class="gallery-header">
-    <h1 class="gallery-title">Project Gallery</h1>
-    <p class="gallery-subtitle">Explore open-source submissions fairly reviewed and transparently evaluated.</p>
-  </div>
-
-  <!-- Filters & Search Form -->
-  <form method="GET" action="/projects/" class="gallery-filters">
-    <div style="flex: 2; min-width: 240px;">
-      <input type="text" name="q" value="{{ search_q }}" placeholder="Search by project title, keyword, or tag..." class="form-input">
+<div class="gallery-shell">
+  <header class="gallery-hero">
+    <p class="gallery-eyebrow">THE FAIRPANEL SHOWCASE <span>/</span> PROJECT GALLERY</p>
+    <div class="gallery-hero-row">
+      <div><h1>Meet the projects<span class="gallery-title-dot">.</span></h1><p>Explore what teams built, the problems they tackled, and the ideas ready to make an impact.</p></div>
+      <span class="gallery-project-count">{{ result_count }} project{{ result_count|pluralize }}</span>
     </div>
-
-    <div style="flex: 1; min-width: 180px;">
-      <select name="event" class="form-select" onchange="this.form.submit()">
-        <option value="">All Events</option>
-        {% for evt in events %}
-          <option value="{{ evt.id }}" {% if selected_event_id == evt.id %}selected{% endif %}>{{ evt.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <div style="flex: 1; min-width: 180px;">
-      <select name="track" class="form-select" onchange="this.form.submit()">
-        <option value="">All Tracks</option>
-        {% for trk in tracks %}
-          <option value="{{ trk.id }}" {% if selected_track == trk.id %}selected{% endif %}>{{ trk.name }}</option>
-        {% endfor %}
-      </select>
-    </div>
-
-    <button type="submit" class="btn btn-secondary">Filter</button>
-    {% if search_q or selected_event_id or selected_track %}
-      <a href="/projects/" class="btn btn-ghost">Clear</a>
-    {% endif %}
+  </header>
+  <form class="gallery-toolbar" method="get" action="/projects/" role="search">
+    <label class="gallery-search" for="gallery-search-input">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg>
+      <span class="sr-only">Search projects</span><input id="gallery-search-input" type="search" name="q" value="{{ search_q }}" placeholder="Search projects, ideas, or teams">
+    </label>
+    <label class="gallery-select-wrap"><span>Event</span><select name="event" aria-label="Filter by event" onchange="this.form.submit()"><option value="">All events</option>{% for evt in events %}<option value="{{ evt.id }}" {% if selected_event_id == evt.id %}selected{% endif %}>{{ evt.name }}</option>{% endfor %}</select></label>
+    <label class="gallery-select-wrap"><span>Track</span><select name="track" aria-label="Filter by track" onchange="this.form.submit()"><option value="">All tracks</option>{% for trk in tracks %}<option value="{{ trk.id }}" {% if selected_track == trk.id %}selected{% endif %}>{{ trk.name }}</option>{% endfor %}</select></label>
+    <label class="gallery-select-wrap gallery-sort"><span>Sort</span><select name="sort" aria-label="Sort projects" onchange="this.form.submit()"><option value="newest" {% if selected_sort == 'newest' %}selected{% endif %}>Newest</option><option value="title" {% if selected_sort == 'title' %}selected{% endif %}>A to Z</option></select></label>
+    <button class="gallery-search-button" type="submit">Explore ↗</button>
   </form>
-
-  <!-- Project Cards Grid (Server-Rendered for immediate fixture verification) -->
+  <div class="gallery-results-heading"><div><span class="gallery-results-rule"></span><h2>{% if search_q or selected_event_id or selected_track %}Matching projects{% else %}All projects{% endif %}</h2></div>{% if search_q or selected_event_id or selected_track %}<a href="/projects/">Clear filters ×</a>{% endif %}</div>
   {% if projects %}
-    <div class="gallery-grid">
-      {% for prj in projects %}
-        <a href="/projects/{{ prj.id }}/" class="project-card">
-          <div>
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
-              <h2 class="project-card-title">{{ prj.title }}</h2>
-              {% if prj.track %}
-                <span class="badge badge-neutral">{{ prj.track.name }}</span>
-              {% endif %}
-            </div>
-            <p class="project-card-tagline">{{ prj.tagline|default:prj.description|truncatewords:24 }}</p>
-          </div>
-          <div class="project-card-footer">
-            <span>By <strong>{{ prj.team.name|default:"Independent" }}</strong></span>
-            <span>{{ prj.event.name }}</span>
-          </div>
-        </a>
-      {% endfor %}
-    </div>
-
-    <!-- Pagination -->
-    {% if projects.has_other_pages %}
-      <div class="pagination">
-        {% if projects.has_previous %}
-          <a href="?page={{ projects.previous_page_number }}{% if search_q %}&q={{ search_q }}{% endif %}{% if selected_event_id %}&event={{ selected_event_id }}{% endif %}{% if selected_track %}&track={{ selected_track }}{% endif %}" class="btn btn-secondary btn-sm">&larr; Previous</a>
-        {% endif %}
-        <span style="display: flex; align-items: center; padding: 0 12px; font-size: 13px; color: var(--text-secondary);">
-          Page {{ projects.number }} of {{ projects.paginator.num_pages }}
-        </span>
-        {% if projects.has_next %}
-          <a href="?page={{ projects.next_page_number }}{% if search_q %}&q={{ search_q }}{% endif %}{% if selected_event_id %}&event={{ selected_event_id }}{% endif %}{% if selected_track %}&track={{ selected_track }}{% endif %}" class="btn btn-secondary btn-sm">Next &rarr;</a>
-        {% endif %}
+  <div class="gallery-grid">
+    {% for prj in projects %}
+    <a class="gallery-card" href="/projects/{{ prj.id }}/" aria-label="View {{ prj.title }}">
+      <div class="gallery-card-image">
+        {% if prj.thumbnail_url %}<img src="{{ prj.thumbnail_url }}" alt="{{ prj.title }} cover image" loading="lazy">
+        {% elif prj.images.0 %}<img src="{{ prj.images.0 }}" alt="{{ prj.title }} project image" loading="lazy">
+        {% else %}<div class="gallery-card-fallback" aria-hidden="true"><span>{{ prj.title|slice:':1' }}</span><small>FAIRPANEL / PROJECT</small></div>{% endif %}
+        <span class="gallery-card-image-link" aria-hidden="true">↗</span>
       </div>
-    {% endif %}
-
+      <div class="gallery-card-content">
+        <p class="gallery-card-meta"><span>{{ prj.track.name|default:"Open track" }}</span><span>{{ prj.event.name }}</span></p>
+        <h3>{{ prj.title }}</h3>
+        <p class="gallery-card-summary">{{ prj.tagline|default:prj.description|truncatewords:23 }}</p>
+        <div class="gallery-card-bottom"><span>By {{ prj.team.name|default:"Independent" }}</span><span>VIEW PROJECT ↗</span></div>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% if projects.has_other_pages %}
+  <nav class="gallery-pagination" aria-label="Gallery pages">
+    {% if projects.has_previous %}<a href="?page={{ projects.previous_page_number }}&amp;q={{ search_q|urlencode }}&amp;event={{ selected_event_id|default:''|urlencode }}&amp;track={{ selected_track|default:''|urlencode }}&amp;sort={{ selected_sort }}">← Previous</a>{% else %}<span></span>{% endif %}
+    <span>Page {{ projects.number }} of {{ projects.paginator.num_pages }}</span>
+    {% if projects.has_next %}<a href="?page={{ projects.next_page_number }}&amp;q={{ search_q|urlencode }}&amp;event={{ selected_event_id|default:''|urlencode }}&amp;track={{ selected_track|default:''|urlencode }}&amp;sort={{ selected_sort }}">Next →</a>{% else %}<span></span>{% endif %}
+  </nav>
+  {% endif %}
   {% else %}
-    <div class="panel" style="text-align: center; padding: 60px 20px;">
-      <h3 style="font-size: 20px; margin-bottom: 8px;">No projects found</h3>
-      <p style="color: var(--text-secondary); margin-bottom: 20px;">Try adjusting your search terms or filters to see more submissions.</p>
-      <a href="/projects/" class="btn btn-secondary">View all projects</a>
-    </div>
+  <div class="gallery-empty"><span aria-hidden="true">✳</span><h2>No projects found</h2><p>Try a different search or browse all submitted projects.</p><a href="/projects/">View all projects →</a></div>
   {% endif %}
 </div>
 {% endblock %}

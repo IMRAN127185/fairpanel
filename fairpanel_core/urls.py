@@ -1,15 +1,24 @@
 from django.contrib import admin
 from django.urls import path, include
 from django.shortcuts import redirect
+from django.contrib.auth.decorators import login_required
+from django.http import HttpResponseForbidden
+from events.models import EventMembership
 from django.conf import settings
 from django.conf.urls.static import static
 
 from fairpanel_core import views
 
+@login_required
 def redirect_legacy_team(request, event_id):
+    if not EventMembership.objects.filter(user=request.user, event_id=event_id, role='participant').exists():
+        return HttpResponseForbidden('Participant access required.')
     return redirect(f'/participant/events/{event_id}/team/')
 
+@login_required
 def redirect_legacy_submission(request, event_id):
+    if not EventMembership.objects.filter(user=request.user, event_id=event_id, role='participant').exists():
+        return HttpResponseForbidden('Participant access required.')
     return redirect(f'/participant/events/{event_id}/submission/')
 
 urlpatterns = [

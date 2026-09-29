@@ -12,6 +12,13 @@ document.addEventListener('DOMContentLoaded', () => {
   let projectId = wizard.dataset.projectId || null;
   let projectVersion = parseInt(wizard.dataset.projectVersion || '1', 10);
   let isDirty = false;
+  const existingImages = document.getElementById('existing-project-images');
+  if (existingImages) {
+    try {
+      const imageList = JSON.parse(existingImages.textContent);
+      if (Array.isArray(imageList)) document.getElementById('proj-images').value = imageList.join('\n');
+    } catch (_) { /* Keep the field blank if legacy image data is malformed. */ }
+  }
 
   const steps = ['basics', 'details', 'links', 'review'];
   let currentStepIdx = 0;
@@ -52,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
       description: formData.get('description') || '',
       track_id: formData.get('track_id') || '',
       thumbnail_url: formData.get('thumbnail_url') || '',
+      images: (formData.get('images') || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean).slice(0, 6),
       repo_url: formData.get('repo_url') || '',
       live_url: formData.get('live_url') || '',
       video_url: formData.get('video_url') || '',

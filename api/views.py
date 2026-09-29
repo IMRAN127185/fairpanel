@@ -3,12 +3,15 @@ import io
 import json
 import secrets
 import hashlib
-from datetime import datetime
+import math
+from datetime import datetime, timezone as dt_timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from urllib.parse import urlsplit
 from django.conf import settings
 from django.contrib.auth import authenticate, login, logout, get_user_model
 from django.contrib.sessions.models import Session
 from django.db import transaction
-from django.db.models import Q, Count
+from django.db.models import Q, Count, F
 from django.http import HttpResponse, JsonResponse
 from django.middleware.csrf import get_token
 from django.utils import timezone
@@ -33,6 +36,50 @@ def get_json_body(request):
     except Exception:
         pass
     return {}
+
+
+def validate_project_links(data):
+    """Only browser-safe absolute web links may be published as project media or actions."""
+    def is_web_url(value):
+        if not isinstance(value, str) or len(value) > 1000:
+            return False
+        try:
+            parsed = urlsplit(value)
+        except ValueError:
+            return False
+        return parsed.scheme.lower() in ('http', 'https') and bool(parsed.netloc) and not parsed.username
+
+    for field in ('thumbnail_url', 'video_url', 'repo_url', 'live_url'):
+        if field in data and data[field] and not is_web_url(data[field]):
+            return f'{field} must be an absolute HTTP or HTTPS URL'
+    if 'images' in data:
+        images = data['images']
+        if not isinstance(images, list) or len(images) > 6 or any(not is_web_url(image) for image in images):
+            return 'images must contain up to six HTTP or HTTPS URLs'
+    return None
+
+
+def parse_event_datetime(value):
+    if not value:
+        return None
+    parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt_timezone.utc)
+    return parsed.astimezone(dt_timezone.utc)
+
+
+def validate_event_schedule(event):
+    if event.submissions_open and event.submissions_close and event.submissions_open >= event.submissions_close:
+        return 'Submission close must be after submission open'
+    if event.judging_open and event.judging_close and event.judging_open >= event.judging_close:
+        return 'Judging close must be after judging open'
+    if not 1 <= event.team_capacity <= 20 or not 1 <= event.min_reviews_per_project <= 20:
+        return 'Team capacity and review target must be between 1 and 20'
+    try:
+        ZoneInfo(event.timezone)
+    except (ZoneInfoNotFoundError, TypeError):
+        return 'Invalid timezone'
+    return None
 
 
 def record_audit(event, actor, action, target="", reason="", before_data=None, after_data=None):
@@ -330,7 +377,7 @@ def public_stats(request):
 
 def events_list_create(request):
     if request.method == 'GET':
-        events = Event.objects.all().order_by('-created_at')
+        events = Event.objects.filter(status__in=['active', 'judging', 'published']).order_by('-created_at')
         result = []
         for e in events:
             result.append({
@@ -360,20 +407,47 @@ def events_list_create(request):
         if not name:
             return api_error('validation_error', 'Event name is required', status=422)
 
+        tracks_data = data.get('tracks', [])
+        prizes_data = data.get('prizes', [])
+        if (not isinstance(tracks_data, list) or len(tracks_data) > 30 or
+                not isinstance(prizes_data, list) or len(prizes_data) > 30):
+            return api_error('validation_error', 'Tracks and prizes must be lists of at most 30 items', status=422)
+        if any(not isinstance(track, str) or not track.strip() for track in tracks_data):
+            return api_error('validation_error', 'Each track needs a name', status=422)
+        if any(not isinstance(prize, dict) or not isinstance(prize.get('name'), str) or not prize['name'].strip()
+               for prize in prizes_data):
+            return api_error('validation_error', 'Each prize needs a name', status=422)
+        try:
+            schedule = {key: parse_event_datetime(data.get(key)) for key in
+                        ('submissions_open', 'submissions_close', 'judging_open', 'judging_close')}
+            capacity = int(data.get('team_capacity', 4))
+            reviews_target = int(data.get('min_reviews_per_project', 3))
+        except (TypeError, ValueError, OverflowError):
+            return api_error('validation_error', 'Invalid event dates or numeric limits', status=422)
+
+        draft_event = Event(owner=request.user, name=name, timezone=data.get('timezone', 'UTC'),
+                            team_capacity=capacity, min_reviews_per_project=reviews_target, **schedule)
+        schedule_error = validate_event_schedule(draft_event)
+        if schedule_error:
+            return api_error('validation_error', schedule_error, status=422)
+
         with transaction.atomic():
             event = Event.objects.create(
                 owner=request.user,
                 name=name,
                 description=data.get('description', ''),
                 timezone=data.get('timezone', 'UTC'),
-                submissions_open=datetime.fromisoformat(data['submissions_open']) if data.get('submissions_open') else None,
-                submissions_close=datetime.fromisoformat(data['submissions_close']) if data.get('submissions_close') else None,
-                judging_open=datetime.fromisoformat(data['judging_open']) if data.get('judging_open') else None,
-                judging_close=datetime.fromisoformat(data['judging_close']) if data.get('judging_close') else None,
+                **schedule,
                 status='active',
-                team_capacity=data.get('team_capacity', 4),
-                min_reviews_per_project=data.get('min_reviews_per_project', 3)
+                team_capacity=capacity,
+                min_reviews_per_project=reviews_target,
             )
+            for track_name in tracks_data:
+                Track.objects.create(event=event, name=track_name.strip())
+            for prize_data in prizes_data:
+                Prize.objects.create(event=event, name=prize_data['name'].strip(),
+                                     amount=str(prize_data.get('amount', '')),
+                                     description=str(prize_data.get('description', '')))
             # Add creator as organizer
             EventMembership.objects.create(user=request.user, event=event, role='organizer')
             # Initialize empty rubric
@@ -430,18 +504,19 @@ def event_detail_update(request, event_id):
             event.description = data['description']
         if 'timezone' in data:
             event.timezone = data['timezone']
-        if 'submissions_close' in data:
-            event.submissions_close = datetime.fromisoformat(data['submissions_close']) if data['submissions_close'] else None
-        if 'submissions_open' in data:
-            event.submissions_open = datetime.fromisoformat(data['submissions_open']) if data['submissions_open'] else None
-        if 'judging_open' in data:
-            event.judging_open = datetime.fromisoformat(data['judging_open']) if data['judging_open'] else None
-        if 'judging_close' in data:
-            event.judging_close = datetime.fromisoformat(data['judging_close']) if data['judging_close'] else None
-        if 'team_capacity' in data:
-            event.team_capacity = int(data['team_capacity'])
-        if 'min_reviews_per_project' in data:
-            event.min_reviews_per_project = int(data['min_reviews_per_project'])
+        try:
+            for field in ('submissions_open', 'submissions_close', 'judging_open', 'judging_close'):
+                if field in data:
+                    setattr(event, field, parse_event_datetime(data[field]))
+            if 'team_capacity' in data:
+                event.team_capacity = int(data['team_capacity'])
+            if 'min_reviews_per_project' in data:
+                event.min_reviews_per_project = int(data['min_reviews_per_project'])
+        except (TypeError, ValueError, OverflowError):
+            return api_error('validation_error', 'Invalid event dates or numeric limits', status=422)
+        schedule_error = validate_event_schedule(event)
+        if schedule_error:
+            return api_error('validation_error', schedule_error, status=422)
 
         event.save()
         after_data = {'name': event.name, 'submissions_close': event.submissions_close.isoformat() if event.submissions_close else None}
@@ -485,11 +560,14 @@ def event_teams_list_create(request, event_id):
         return api_error('not_found', 'Event not found', status=404)
 
     if request.method == 'GET':
+        can_see_members = request.user.is_authenticated and (
+            event.memberships.filter(user=request.user, role='organizer').exists() or
+            TeamMembership.objects.filter(team__event=event, user=request.user).exists())
         teams = event.teams.select_related('captain').prefetch_related('memberships__user').all()
         data = []
         for tm in teams:
             members = [
-                {'id': m.user.id, 'display_name': m.user.display_name, 'email': m.user.email}
+                {'id': m.user.id, 'display_name': m.user.display_name, **({'email': m.user.email} if can_see_members else {})}
                 for m in tm.memberships.all()
             ]
             data.append({
@@ -506,6 +584,8 @@ def event_teams_list_create(request, event_id):
     elif request.method == 'POST':
         if not request.user.is_authenticated:
             return api_error('unauthenticated', 'Login required', status=401)
+        if not event.memberships.filter(user=request.user, role='participant').exists():
+            return api_error('forbidden', 'Participant membership required', status=403)
 
         data = get_json_body(request)
         name = data.get('name', '').strip()
@@ -604,6 +684,11 @@ def team_invites_accept(request):
         return api_error('invalid_invite', 'This invitation is invalid, expired, or already used', status=400)
 
     team = invite.team
+    if invite.invited_email and invite.invited_email.lower() != request.user.email.lower():
+        return api_error('forbidden', 'This invitation is for a different account', status=403)
+    existing_role = EventMembership.objects.filter(user=request.user, event=team.event).first()
+    if existing_role and existing_role.role != 'participant':
+        return api_error('forbidden', 'You already have another role in this event', status=403)
     # Check if user is already in a team in this event
     if TeamMembership.objects.filter(team__event=team.event, user=request.user).exists():
         return api_error('already_in_team', 'You already belong to a team for this event', status=409)
@@ -667,11 +752,18 @@ def event_projects_list_create(request, event_id):
         # Check deadline boundary!
         if not event.is_submission_open:
             return api_error('deadline_passed', 'Submissions are closed.', status=400)
+        if event.result_snapshots.exists():
+            return api_error('results_published', 'Submissions are locked after results publication', status=409)
 
         if not request.user.is_authenticated:
             return api_error('unauthenticated', 'Login required', status=401)
+        if not event.memberships.filter(user=request.user, role='participant').exists():
+            return api_error('forbidden', 'Participant membership required', status=403)
 
         data = get_json_body(request)
+        link_error = validate_project_links(data)
+        if link_error:
+            return api_error('validation_error', link_error, status=422)
         title = data.get('title', '').strip()
         if not title:
             return api_error('validation_error', 'Title is required', status=422)
@@ -722,12 +814,12 @@ def project_detail_update(request, project_id):
 
     event = project.event
     is_team_member = request.user.is_authenticated and project.team.memberships.filter(user=request.user).exists()
+    is_team_member = is_team_member and event.memberships.filter(user=request.user, role='participant').exists()
     is_organizer = request.user.is_authenticated and event.memberships.filter(user=request.user, role='organizer').exists()
-    is_judge = request.user.is_authenticated and event.memberships.filter(user=request.user, role='judge').exists()
 
     if request.method == 'GET':
         # Public cannot see drafts or custom answers unless team member or organizer
-        if project.status == 'draft' and not (is_team_member or is_organizer):
+        if (project.status != 'submitted' or project.eligibility != 'eligible') and not (is_team_member or is_organizer):
             return api_error('not_found', 'Project not found or private', status=404)
 
         data = {
@@ -758,16 +850,21 @@ def project_detail_update(request, project_id):
         return api_success(data)
 
     elif request.method == 'PATCH':
-        if not is_team_member and not is_organizer:
-            return api_error('forbidden', 'Only team members or organizers can edit project', status=403)
+        if not is_team_member:
+            return api_error('forbidden', 'Only team members can edit project', status=403)
 
         # Check deadline if not organizer
-        if not is_organizer and not event.is_submission_open:
+        if not event.is_submission_open:
             return api_error('deadline_passed', 'Submissions are closed.', status=400)
+        if event.result_snapshots.exists():
+            return api_error('results_published', 'Projects are locked after results publication', status=409)
 
         data = get_json_body(request)
+        link_error = validate_project_links(data)
+        if link_error:
+            return api_error('validation_error', link_error, status=422)
         req_version = data.get('version')
-        if req_version is not None and req_version != project.version:
+        if req_version != project.version:
             return api_error('version_conflict', 'Project has been modified elsewhere. Please refresh.', status=409)
 
         if 'title' in data: project.title = data['title']
@@ -782,9 +879,18 @@ def project_detail_update(request, project_id):
         if 'custom_answers' in data: project.custom_answers = data['custom_answers']
         if 'track_id' in data:
             project.track = Track.objects.filter(id=data['track_id'], event=event).first()
+            if data['track_id'] and not project.track:
+                return api_error('validation_error', 'Track is not in this event', status=422)
 
-        project.version += 1
-        project.save()
+        mutable_fields = ('title', 'tagline', 'description', 'thumbnail_url', 'images',
+                          'video_url', 'repo_url', 'live_url', 'tech_tags', 'custom_answers')
+        changes = {field: getattr(project, field) for field in mutable_fields if field in data}
+        if 'track_id' in data:
+            changes['track_id'] = project.track_id
+        changes.update(version=F('version') + 1, updated_at=timezone.now())
+        if not Project.objects.filter(id=project.id, version=req_version).update(**changes):
+            return api_error('version_conflict', 'Project has been modified elsewhere. Please refresh.', status=409)
+        project.refresh_from_db()
         record_audit(event, request.user, 'update_project', target=project.id, reason="Updated project details")
         return api_success({'id': project.id, 'title': project.title, 'version': project.version})
 
@@ -803,25 +909,32 @@ def project_submit(request, project_id):
         return api_error('not_found', 'Project not found', status=404)
 
     is_team_member = project.team.memberships.filter(user=request.user).exists()
-    if not is_team_member and not request.user.is_staff:
+    if not is_team_member or not project.event.memberships.filter(user=request.user, role='participant').exists():
         return api_error('forbidden', 'Only team members can submit project', status=403)
 
     if not project.event.is_submission_open:
         return api_error('deadline_passed', 'Submissions are closed.', status=400)
+    if project.event.result_snapshots.exists():
+        return api_error('results_published', 'Submissions are locked after results publication', status=409)
 
     data = get_json_body(request)
     req_version = data.get('version')
-    if req_version is not None and req_version != project.version:
+    if req_version != project.version:
         return api_error('version_conflict', 'Project has been modified. Please refresh.', status=409)
 
     # Validate required fields
-    if not project.title.strip():
-        return api_error('validation_error', 'Title is required for submission', status=422)
+    if not project.title.strip() or not project.tagline.strip() or not project.description.strip() or not project.track_id:
+        return api_error('validation_error', 'Title, tagline, description, and track are required for submission', status=422)
+    for question in project.event.custom_questions.filter(required=True):
+        if not project.custom_answers.get(question.key):
+            return api_error('validation_error', f'{question.label} is required', status=422)
 
-    project.status = 'submitted'
-    project.submitted_at = timezone.now()
-    project.version += 1
-    project.save()
+    submitted_at = timezone.now()
+    if not Project.objects.filter(id=project.id, version=req_version).update(
+            status='submitted', submitted_at=submitted_at,
+            version=F('version') + 1, updated_at=submitted_at):
+        return api_error('version_conflict', 'Project has been modified. Please refresh.', status=409)
+    project.refresh_from_db()
     record_audit(project.event, request.user, 'submit_project', target=project.id, reason="Finalized project submission")
     return api_success({
         'id': project.id,
@@ -883,26 +996,50 @@ def event_rubric_detail_update(request, event_id):
         if not request.user.is_authenticated or not event.memberships.filter(user=request.user, role='organizer').exists():
             return api_error('forbidden', 'Organizer access required', status=403)
 
-        if rubric.is_locked:
+        if rubric.is_locked or Review.objects.filter(project__event=event, status='submitted').exists():
             return api_error('rubric_locked', 'Rubric is locked because scoring has commenced', status=409)
 
         data = get_json_body(request)
         req_version = data.get('version')
-        if req_version is not None and req_version != rubric.version:
+        if req_version != rubric.version:
             return api_error('version_conflict', 'Rubric version conflict', status=409)
 
         criteria_list = data.get('criteria', [])
+        if not isinstance(criteria_list, list) or not 1 <= len(criteria_list) <= 20:
+            return api_error('validation_error', 'Provide between 1 and 20 criteria', status=422)
+        keys = set()
+        validated = []
+        for idx, criterion in enumerate(criteria_list):
+            if not isinstance(criterion, dict):
+                return api_error('validation_error', 'Each criterion must be an object', status=422)
+            key = criterion.get('key', f'crit_{idx + 1}')
+            name = criterion.get('name', '')
+            try:
+                minimum = float(criterion.get('min_score', 1))
+                maximum = float(criterion.get('max_score', 5))
+                weight = float(criterion.get('weight', 1))
+            except (TypeError, ValueError):
+                return api_error('validation_error', 'Criterion scores and weights must be numeric', status=422)
+            if (not isinstance(key, str) or not key.isidentifier() or key in keys or
+                    not isinstance(name, str) or not name.strip() or
+                    not all(map(math.isfinite, (minimum, maximum, weight))) or
+                    minimum >= maximum or weight < 0):
+                return api_error('validation_error', 'Invalid criterion key, scale, name, or weight', status=422)
+            keys.add(key)
+            validated.append((key, name.strip(), minimum, maximum, weight, criterion.get('description', '')))
+        if sum(item[4] for item in validated) <= 0:
+            return api_error('validation_error', 'At least one criterion must have positive weight', status=422)
         with transaction.atomic():
             rubric.criteria.all().delete()
-            for idx, c in enumerate(criteria_list):
+            for idx, (key, name, minimum, maximum, weight, description) in enumerate(validated):
                 Criterion.objects.create(
                     rubric=rubric,
-                    key=c.get('key', f"crit_{idx+1}"),
-                    name=c.get('name', f"Criterion {idx+1}"),
-                    description=c.get('description', ''),
-                    min_score=float(c.get('min_score', 1.0)),
-                    max_score=float(c.get('max_score', 5.0)),
-                    weight=float(c.get('weight', 1.0)),
+                    key=key,
+                    name=name,
+                    description=description,
+                    min_score=minimum,
+                    max_score=maximum,
+                    weight=weight,
                     order=idx
                 )
             rubric.version += 1
@@ -967,12 +1104,13 @@ def judge_invites_accept(request):
         return api_error('invalid_invite', 'This judge invitation is invalid or expired', status=400)
 
     event = invite.event
+    if invite.invited_email and invite.invited_email.lower() != request.user.email.lower():
+        return api_error('forbidden', 'This invitation is for a different account', status=403)
+    existing_role = EventMembership.objects.filter(user=request.user, event=event).first()
+    if existing_role and existing_role.role != 'judge':
+        return api_error('forbidden', 'You already have another role in this event', status=403)
     with transaction.atomic():
-        EventMembership.objects.update_or_create(
-            user=request.user,
-            event=event,
-            defaults={'role': 'judge'}
-        )
+        EventMembership.objects.get_or_create(user=request.user, event=event, defaults={'role': 'judge'})
         # Apply track scopes
         scope, _ = JudgeTrackScope.objects.get_or_create(judge=request.user, event=event)
         if invite.tracks:
@@ -1018,58 +1156,79 @@ def event_assignments_list_create(request, event_id):
         return api_success(data)
 
     elif request.method == 'POST':
+        if event.result_snapshots.exists():
+            return api_error('results_published', 'Assignments are locked after results publication', status=409)
         data = get_json_body(request)
         strategy = data.get('strategy', 'balanced')
         created_count = 0
 
         if strategy == 'balanced':
-            reviews_per_project = int(data.get('reviews_per_project', event.min_reviews_per_project or 3))
-            judges = list(event.memberships.filter(role='judge').values_list('user_id', flat=True))
-            projects = list(event.projects.filter(status='submitted', eligibility='eligible'))
+            try:
+                reviews_per_project = int(data.get('reviews_per_project', event.min_reviews_per_project or 3))
+            except (TypeError, ValueError):
+                return api_error('validation_error', 'reviews_per_project must be an integer', status=422)
+            if reviews_per_project < 1 or reviews_per_project > 20:
+                return api_error('validation_error', 'reviews_per_project must be between 1 and 20', status=422)
+            judges = sorted(event.memberships.filter(role='judge').values_list('user_id', flat=True))
+            projects = list(event.projects.filter(status='submitted', eligibility='eligible').order_by('id'))
 
             if not judges:
                 return api_error('no_judges', 'No judges registered for this event', status=422)
 
+            scopes = {scope.judge_id: set(scope.tracks.values_list('id', flat=True))
+                      for scope in JudgeTrackScope.objects.filter(event=event, judge_id__in=judges).prefetch_related('tracks')}
+            workloads = {judge_id: Assignment.objects.filter(event=event, judge_id=judge_id).count()
+                         for judge_id in judges}
+            shortages = []
             with transaction.atomic():
-                # Balanced round-robin with track affinity
-                for p_idx, p in enumerate(projects):
-                    # Filter out team members to prevent conflict
-                    team_member_ids = set(p.team.memberships.values_list('user_id', flat=True)) if p.team else set()
-                    eligible_judges = [j for j in judges if j not in team_member_ids]
-
-                    # Assign up to reviews_per_project
-                    assigned = 0
-                    for offset in range(len(eligible_judges)):
-                        if assigned >= reviews_per_project:
-                            break
-                        j_id = eligible_judges[(p_idx + offset) % len(eligible_judges)]
-                        asg, created = Assignment.objects.get_or_create(
-                            event=event,
-                            project=p,
-                            judge_id=j_id,
+                for project in projects:
+                    assigned_ids = set(Assignment.objects.filter(project=project).values_list('judge_id', flat=True))
+                    needed = max(0, reviews_per_project - len(assigned_ids))
+                    team_member_ids = set(project.team.memberships.values_list('user_id', flat=True))
+                    candidates = [judge_id for judge_id in judges
+                                  if judge_id not in team_member_ids
+                                  and judge_id not in assigned_ids
+                                  and project.track_id in scopes.get(judge_id, set())]
+                    for judge_id in sorted(candidates, key=lambda j: (workloads[j], j))[:needed]:
+                        _, created = Assignment.objects.get_or_create(
+                            event=event, project=project, judge_id=judge_id,
                             defaults={'status': 'assigned'}
                         )
                         if created:
                             created_count += 1
-                        assigned += 1
+                            workloads[judge_id] += 1
+                    if needed > len(candidates):
+                        shortages.append({'project_id': project.id, 'missing': needed - len(candidates)})
 
             record_audit(event, request.user, 'run_balanced_assignment', target=f"{created_count} assignments", reason="Ran balanced assignment algorithm")
-            return api_success({'created_count': created_count, 'message': f"Created {created_count} assignments"})
+            return api_success({'created_count': created_count, 'shortages': shortages,
+                                'message': f"Created {created_count} assignments"})
 
         elif strategy == 'manual':
             pairs = data.get('pairs', [])
+            if not isinstance(pairs, list) or not pairs:
+                return api_error('validation_error', 'pairs must be a nonempty list', status=422)
+            validated_pairs = []
+            for pair in pairs:
+                if not isinstance(pair, dict):
+                    return api_error('validation_error', 'Each pair must be an object', status=422)
+                judge_id, project_id = pair.get('judge_id'), pair.get('project_id')
+                project = Project.objects.filter(id=project_id, event=event, status='submitted', eligibility='eligible').first()
+                if not project or not event.memberships.filter(user_id=judge_id, role='judge').exists():
+                    return api_error('validation_error', 'Judge or project is outside this event', status=422)
+                if project.team.memberships.filter(user_id=judge_id).exists():
+                    return api_error('validation_error', 'A team member cannot judge their project', status=422)
+                if not JudgeTrackScope.objects.filter(event=event, judge_id=judge_id, tracks=project.track).exists():
+                    return api_error('validation_error', 'Judge is not authorized for this track', status=422)
+                validated_pairs.append((judge_id, project_id))
             with transaction.atomic():
-                for pair in pairs:
-                    j_id = pair.get('judge_id')
-                    p_id = pair.get('project_id')
-                    if j_id and p_id:
-                        asg, created = Assignment.objects.get_or_create(
-                            event=event,
-                            project_id=p_id,
-                            judge_id=j_id,
-                            defaults={'status': 'assigned'}
-                        )
-                        if created: created_count += 1
+                for judge_id, project_id in validated_pairs:
+                    _, created = Assignment.objects.get_or_create(
+                        event=event, project_id=project_id, judge_id=judge_id,
+                        defaults={'status': 'assigned'}
+                    )
+                    if created:
+                        created_count += 1
             return api_success({'created_count': created_count})
 
         return api_error('validation_error', 'Invalid strategy', status=422)
@@ -1117,7 +1276,10 @@ def judge_assignments(request):
         return api_error('forbidden', 'Judge role required', status=403)
 
     event_id = request.GET.get('event')
-    qs = Assignment.objects.filter(judge=request.user).select_related('project', 'event', 'review')
+    permitted_events = request.user.memberships.filter(role='judge').values_list('event_id', flat=True)
+    qs = Assignment.objects.filter(judge=request.user, event_id__in=permitted_events,
+                                   project__track__scoped_judges__judge=request.user,
+                                   project__track__scoped_judges__event=F('event')).distinct().select_related('project', 'event', 'review')
     if event_id:
         qs = qs.filter(event_id=event_id)
 
@@ -1151,12 +1313,14 @@ def judge_scores(request):
         return api_error('unauthenticated', 'Login required', status=401)
 
     # Check if user is a judge
-    is_judge = request.user.memberships.filter(role='judge').exists() or \
-               Review.objects.filter(judge=request.user).exists()
+    is_judge = request.user.memberships.filter(role='judge').exists()
     if not is_judge:
         return api_error('forbidden', 'Participant is not authorized to view judge scores', status=403)
 
-    reviews = Review.objects.filter(judge=request.user).select_related('project', 'project__event')
+    judge_event_ids = request.user.memberships.filter(role='judge').values_list('event_id', flat=True)
+    reviews = Review.objects.filter(judge=request.user, project__event_id__in=judge_event_ids,
+                                    project__track__scoped_judges__judge=request.user,
+                                    project__track__scoped_judges__event=F('project__event')).distinct().select_related('project', 'project__event')
     data = []
     for r in reviews:
         data.append({
@@ -1182,24 +1346,21 @@ def judge_peer_scores(request, judge_id):
     if not request.user.is_authenticated:
         return api_error('unauthenticated', 'Login required', status=401)
 
-    # Allow if the caller is the judge themselves
-    if request.user.id == judge_id or request.user.username == judge_id:
-        pass
-    else:
-        # Check if caller is an organizer for an event where this judge has scored
-        is_organizer = EventMembership.objects.filter(
-            user=request.user,
-            role='organizer',
-            event__assignments__judge_id=judge_id
-        ).exists() or request.user.is_staff
-        if not is_organizer:
-            return api_error('forbidden', "Access denied: cannot view another judge's scores", status=403)
-
     target_user = User.objects.filter(Q(id=judge_id) | Q(username=judge_id)).first()
     if not target_user:
         return api_error('not_found', 'Judge not found', status=404)
 
     reviews = Review.objects.filter(judge=target_user).select_related('project')
+    if target_user != request.user:
+        organizer_event_ids = EventMembership.objects.filter(user=request.user, role='organizer').values_list('event_id', flat=True)
+        reviews = reviews.filter(project__event_id__in=organizer_event_ids)
+        if not reviews.exists():
+            return api_error('forbidden', "Access denied: cannot view another judge's scores", status=403)
+    else:
+        judge_event_ids = EventMembership.objects.filter(user=request.user, role='judge').values_list('event_id', flat=True)
+        reviews = reviews.filter(project__event_id__in=judge_event_ids,
+                                 project__track__scoped_judges__judge=request.user,
+                                 project__track__scoped_judges__event=F('project__event')).distinct()
     data = []
     for r in reviews:
         data.append({
@@ -1229,13 +1390,15 @@ def project_review_save_or_submit(request, project_id, is_submit=False):
 
     # Verify user is assigned judge
     assignment = Assignment.objects.filter(event=event, project=project, judge=request.user).first()
-    if not assignment and not request.user.is_staff:
-        # Check if user has judge role in this event
-        has_judge_role = event.memberships.filter(user=request.user, role='judge').exists()
-        if not has_judge_role:
-            return api_error('forbidden', 'You are not a judge for this event', status=403)
-        # Create assignment if allowed
-        assignment = Assignment.objects.create(event=event, project=project, judge=request.user, status='assigned')
+    if not assignment or not event.memberships.filter(user=request.user, role='judge').exists():
+        return api_error('forbidden', 'An active judge assignment is required', status=403)
+    if project.track_id and not JudgeTrackScope.objects.filter(
+            event=event, judge=request.user, tracks=project.track).exists():
+        return api_error('forbidden', 'This project is outside your assigned track', status=403)
+    if event.result_snapshots.exists():
+        return api_error('results_published', 'Reviews are locked after results publication', status=409)
+    if not event.is_judging_open:
+        return api_error('judging_closed', 'Judging window is currently closed', status=409)
 
     if assignment.status == 'conflict':
         return api_error('conflict_suspended', 'Scoring suspended due to reported conflict of interest', status=409)
@@ -1258,11 +1421,15 @@ def project_review_save_or_submit(request, project_id, is_submit=False):
         }
     )
 
-    if not created and req_version > 0 and req_version != review.version:
+    if not created and req_version != review.version:
         return api_error('version_conflict', 'Review has been modified elsewhere. Please refresh.', status=409)
 
     criteria_scores = data.get('criteria_scores', review.criteria_scores)
     comment = data.get('comment', review.comment)
+    if not isinstance(criteria_scores, dict) or not isinstance(comment, str):
+        return api_error('validation_error', 'Review scores and comment have invalid types', status=422)
+    if review.status == 'submitted' and not is_submit:
+        return api_error('review_submitted', 'Revise a submitted review through the submit action', status=409)
 
     if is_submit:
         # Validate judging window
@@ -1279,7 +1446,9 @@ def project_review_save_or_submit(request, project_id, is_submit=False):
                     fval = float(val)
                     if fval < crit.min_score or fval > crit.max_score:
                         return api_error('invalid_score', f"Score for {crit.name} must be between {crit.min_score} and {crit.max_score}", status=422)
-                except ValueError:
+                    if not math.isfinite(fval):
+                        return api_error('invalid_score', f"Score for {crit.name} must be finite", status=422)
+                except (TypeError, ValueError):
                     return api_error('invalid_score', f"Score for {crit.name} must be numeric", status=422)
 
         review.status = 'submitted'
@@ -1292,7 +1461,8 @@ def project_review_save_or_submit(request, project_id, is_submit=False):
             rubric.is_locked = True
             rubric.save()
     else:
-        review.status = 'draft'
+        if review.status != 'submitted':
+            review.status = 'draft'
 
     review.criteria_scores = criteria_scores
     review.comment = comment
@@ -1365,6 +1535,9 @@ def project_eligibility(request, project_id):
     if not project.event.memberships.filter(user=request.user, role='organizer').exists() and not request.user.is_staff:
         return api_error('forbidden', 'Organizer access required', status=403)
 
+    if project.event.result_snapshots.exists():
+        return api_error('results_published', 'Eligibility is locked after publication', status=409)
+
     data = get_json_body(request)
     eligibility = data.get('eligibility')
     reason = data.get('reason', '').strip()
@@ -1401,11 +1574,30 @@ def _calculate_event_results_data(event):
         criteria_defs = {'default': {'min_score': 1.0, 'max_score': 5.0, 'weight': 1.0}}
 
     # Fetch submitted reviews
-    reviews_qs = Review.objects.filter(project__event=event, status='submitted').values('id', 'project_id', 'judge_id', 'criteria_scores')
+    reviews_qs = Review.objects.filter(project__event=event, status='submitted',
+                                       assignment__status='completed').values(
+                                           'id', 'project_id', 'judge_id', 'criteria_scores')
     reviews = list(reviews_qs)
 
     calc = compute_pool_results(projects, reviews, criteria_defs, min_required_reviews=event.min_reviews_per_project)
     return calc, len(reviews)
+
+
+def _results_fingerprint(event):
+    """Digest every input that can change the published ranking or its labels."""
+    payload = {
+        'event': {'id': event.id, 'min_reviews_per_project': event.min_reviews_per_project},
+        'projects': list(event.projects.order_by('id').values(
+            'id', 'title', 'track_id', 'status', 'eligibility', 'version')),
+        'reviews': list(Review.objects.filter(project__event=event).order_by('id').values(
+            'id', 'project_id', 'judge_id', 'status', 'rubric_version', 'criteria_scores', 'version')),
+        'assignments': list(event.assignments.order_by('id').values(
+            'id', 'project_id', 'judge_id', 'status')),
+        'rubric': list(Criterion.objects.filter(rubric__event=event).order_by('id').values(
+            'id', 'key', 'min_score', 'max_score', 'weight')),
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'), default=str).encode('utf-8')
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def event_results_preview(request, event_id):
@@ -1418,7 +1610,7 @@ def event_results_preview(request, event_id):
         return api_error('forbidden', 'Organizer access required', status=403)
 
     calc, rev_count = _calculate_event_results_data(event)
-    fingerprint = hashlib.sha256(f"{event.id}_{rev_count}_{len(calc['projects'])}".encode('utf-8')).hexdigest()[:16]
+    fingerprint = _results_fingerprint(event)
 
     return api_success({
         'preview_version': fingerprint,
@@ -1450,11 +1642,19 @@ def event_results_publish(request, event_id):
     acknowledged_warnings = data.get('acknowledged_warnings', [])
     reason = data.get('reason', '')
 
-    calc, rev_count = _calculate_event_results_data(event)
-    current_fingerprint = hashlib.sha256(f"{event.id}_{rev_count}_{len(calc['projects'])}".encode('utf-8')).hexdigest()[:16]
+    if ranking_method not in ('raw', 'adjusted'):
+        return api_error('validation_error', 'ranking_method must be raw or adjusted', status=422)
+    if not preview_version:
+        return api_error('validation_error', 'preview_version is required', status=422)
 
-    if preview_version and preview_version != current_fingerprint:
+    calc, rev_count = _calculate_event_results_data(event)
+    current_fingerprint = _results_fingerprint(event)
+
+    if preview_version != current_fingerprint:
         return api_error('version_conflict', 'Review inputs have changed since preview was generated. Please review again.', status=409)
+    if ranking_method == 'adjusted' and (not calc['is_graph_connected'] or
+                                         any(row.get('adjusted_rank') is None for row in calc['projects'])):
+        return api_error('adjustment_unavailable', 'Adjusted ranks are unavailable for this pool', status=422)
 
     with transaction.atomic():
         revision = (event.result_snapshots.count() or 0) + 1
@@ -1473,6 +1673,9 @@ def event_results_publish(request, event_id):
             ResultRow.objects.create(
                 snapshot=snapshot,
                 project=p_obj,
+                project_title=p_obj.title,
+                project_tagline=p_obj.tagline,
+                track_name=p_obj.track.name if p_obj.track else '',
                 raw_score=p_res['raw_score'],
                 adjusted_score=p_res['adjusted_score'],
                 raw_rank=p_res['raw_rank'],
@@ -1520,11 +1723,11 @@ def event_results_public(request, event_id):
     for r in rows_qs:
         row_data = {
             'project_id': r.project_id,
-            'title': r.project.title,
-            'tagline': r.project.tagline,
+            'title': r.project_title or r.project.title,
+            'tagline': r.project_tagline,
             'raw_rank': r.raw_rank,
             'adjusted_rank': r.adjusted_rank,
-            'raw_score': round(r.raw_score, 2),
+            'raw_score': round(r.raw_score, 2) if r.raw_score is not None else None,
             'review_count': r.review_count,
             'tied': r.tied
         }
@@ -1603,17 +1806,26 @@ def event_csv_export(request, event_id, kind='results'):
     if kind in ('results', 'scores'):
         # Header row with commas
         writer.writerow(['rank', 'project_id', 'title', 'raw_score', 'adjusted_score', 'review_count', 'normalization_status'])
-        calc, _ = _calculate_event_results_data(event)
-        for r in calc['projects']:
-            writer.writerow([
-                sanitize(r.get('raw_rank', '')),
-                sanitize(r.get('project_id', '')),
-                sanitize(r.get('title', '')),
-                sanitize(round(r.get('raw_score', 0), 2)),
-                sanitize(round(r.get('adjusted_score', 0), 2) if r.get('adjusted_score') is not None else 'N/A'),
-                sanitize(r.get('review_count', 0)),
-                sanitize(r.get('normalization_status', ''))
-            ])
+        snapshot = event.result_snapshots.order_by('-revision').first() if kind == 'results' else None
+        if snapshot:
+            for row in snapshot.rows.all():
+                rank = row.adjusted_rank if snapshot.ranking_method == 'adjusted' else row.raw_rank
+                writer.writerow([
+                    sanitize(rank), sanitize(row.project_id), sanitize(row.project_title),
+                    sanitize(round(row.raw_score, 2) if row.raw_score is not None else ''),
+                    sanitize(round(row.adjusted_score, 2) if row.adjusted_score is not None else ''),
+                    sanitize(row.review_count), sanitize(row.normalization_status),
+                ])
+        else:
+            calc, _ = _calculate_event_results_data(event)
+            for row in calc['projects']:
+                writer.writerow([
+                    sanitize(row.get('raw_rank')), sanitize(row.get('project_id')),
+                    sanitize(row.get('title')),
+                    sanitize(round(row['raw_score'], 2) if row.get('raw_score') is not None else ''),
+                    sanitize(round(row['adjusted_score'], 2) if row.get('adjusted_score') is not None else ''),
+                    sanitize(row.get('review_count', 0)), sanitize(row.get('normalization_status', '')),
+                ])
     elif kind == 'projects':
         writer.writerow(['id', 'title', 'team', 'track', 'status', 'eligibility', 'repo_url'])
         for p in event.projects.all():

@@ -3,9 +3,10 @@ services:
     build: .
     container_name: fairpanel_web
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       - DJANGO_DEBUG=True
+      - DJANGO_DB_PATH=/app/data/fairpanel.sqlite3
       - PORT=8080
     volumes:
       - fairpanel_data:/app/data

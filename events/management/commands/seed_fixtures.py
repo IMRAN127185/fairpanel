@@ -4,7 +4,7 @@ from datetime import datetime, timezone as dt_timezone
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
-from django.contrib.sessions.backends.db import SessionStore
+from django.core import signing
 from django.contrib.auth import get_user_model
 from events.models import Event, EventMembership, Track, Prize, CustomQuestion, Rubric, Criterion
 from teams.models import Team, TeamMembership
@@ -18,7 +18,6 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--fixtures', default='fixtures.json', help='Path to fixtures.json')
-        parser.add_argument('--reset', action='store_true', help='Reset database before seeding')
 
     def handle(self, *args, **options):
         fixture_path = options['fixtures']
@@ -36,19 +35,23 @@ class Command(BaseCommand):
 
         with transaction.atomic():
             # 1. Create Core Demo Users
-            organizer_user, _ = User.objects.get_or_create(
+            organizer_user, organizer_created = User.objects.get_or_create(
                 email='organizer@fairpanel.local',
                 defaults={
                     'id': 'usr_organizer',
                     'username': 'organizer@fairpanel.local',
                     'display_name': 'Alex Rivera (Organizer)',
-                    'is_staff': True,
+                    'is_staff': False,
                 }
             )
-            organizer_user.set_password('DemoPassword2026!')
-            organizer_user.save()
+            if organizer_created:
+                organizer_user.set_password('DemoPassword2026!')
+                organizer_user.save(update_fields=['password'])
+            elif organizer_user.is_staff:
+                organizer_user.is_staff = False
+                organizer_user.save(update_fields=['is_staff'])
 
-            participant_user, _ = User.objects.get_or_create(
+            participant_user, participant_created = User.objects.get_or_create(
                 email='participant@fairpanel.local',
                 defaults={
                     'id': 'usr_participant',
@@ -56,8 +59,9 @@ class Command(BaseCommand):
                     'display_name': 'Sam Patel (Participant)',
                 }
             )
-            participant_user.set_password('DemoPassword2026!')
-            participant_user.save()
+            if participant_created:
+                participant_user.set_password('DemoPassword2026!')
+                participant_user.save(update_fields=['password'])
 
             # Ensure WorkspaceSettings for core users
             WorkspaceSettings.objects.get_or_create(
@@ -74,7 +78,7 @@ class Command(BaseCommand):
             # 2. Seed Official Event
             evt_data = data['event']
             event_close = datetime.fromisoformat(evt_data['submissions_close'].replace('Z', '+00:00'))
-            event, _ = Event.objects.update_or_create(
+            event, _ = Event.objects.get_or_create(
                 id=evt_data['id'],
                 defaults={
                     'name': evt_data['name'],
@@ -98,7 +102,7 @@ class Command(BaseCommand):
             # 3. Seed Tracks
             track_objs = {}
             for t in data.get('tracks', []):
-                trk, _ = Track.objects.update_or_create(
+                trk, _ = Track.objects.get_or_create(
                     id=t['id'],
                     defaults={
                         'event': event,
@@ -115,7 +119,7 @@ class Command(BaseCommand):
                 email = j.get('email', f"{j_id}@example.org")
                 name = j.get('name', f"Judge {j_id}")
 
-                u, _ = User.objects.get_or_create(
+                u, judge_created = User.objects.get_or_create(
                     id=j_id,
                     defaults={
                         'email': email,
@@ -123,10 +127,9 @@ class Command(BaseCommand):
                         'display_name': name,
                     }
                 )
-                u.display_name = name
-                u.email = email
-                u.set_password('DemoPassword2026!')
-                u.save()
+                if judge_created:
+                    u.set_password('DemoPassword2026!')
+                    u.save(update_fields=['password'])
 
                 EventMembership.objects.get_or_create(
                     user=u,
@@ -146,7 +149,8 @@ class Command(BaseCommand):
                     event=event
                 )
                 j_tracks = [track_objs[tid] for tid in j.get('tracks', []) if tid in track_objs]
-                scope.tracks.set(j_tracks)
+                if not scope.tracks.exists():
+                    scope.tracks.set(j_tracks)
 
                 judge_objs[j_id] = u
 
@@ -165,7 +169,7 @@ class Command(BaseCommand):
                 ('quality', 'Quality', 1.0, 5.0, 1.0),
             ]
             for order, (key, name, min_s, max_s, weight) in enumerate(criteria_names):
-                Criterion.objects.update_or_create(
+                Criterion.objects.get_or_create(
                     rubric=rubric,
                     key=key,
                     defaults={
@@ -187,15 +191,16 @@ class Command(BaseCommand):
 
                 # Find or create members
                 for idx, m_email in enumerate(member_emails):
-                    m_user, _ = User.objects.get_or_create(
+                    m_user, member_created = User.objects.get_or_create(
                         email=m_email,
                         defaults={
                             'username': m_email,
                             'display_name': m_email.split('@')[0].capitalize(),
                         }
                     )
-                    m_user.set_password('DemoPassword2026!')
-                    m_user.save()
+                    if member_created:
+                        m_user.set_password('DemoPassword2026!')
+                        m_user.save(update_fields=['password'])
 
                     EventMembership.objects.get_or_create(
                         user=m_user,
@@ -209,7 +214,7 @@ class Command(BaseCommand):
                 if not captain_user:
                     captain_user = participant_user
 
-                tm, _ = Team.objects.update_or_create(
+                tm, _ = Team.objects.get_or_create(
                     id=t_id,
                     defaults={
                         'event': event,
@@ -241,7 +246,7 @@ class Command(BaseCommand):
                 trk = track_objs.get(p.get('track'))
                 sub_at = datetime.fromisoformat(p['submitted_at'].replace('Z', '+00:00')) if 'submitted_at' in p else timezone.now()
 
-                prj, _ = Project.objects.update_or_create(
+                prj, _ = Project.objects.get_or_create(
                     id=p_id,
                     defaults={
                         'event': event,
@@ -275,10 +280,7 @@ class Command(BaseCommand):
                     judge=judge,
                     defaults={'status': 'completed'}
                 )
-                asg.status = 'completed'
-                asg.save()
-
-                Review.objects.update_or_create(
+                Review.objects.get_or_create(
                     project=project,
                     judge=judge,
                     defaults={
@@ -337,26 +339,20 @@ class Command(BaseCommand):
                     defaults={'id': f"crt_demo_{key}", 'name': name, 'min_score': min_s, 'max_score': max_s, 'weight': weight, 'order': order}
                 )
 
-        # 10. Generate Real Sessions for Checker & Demo Logins
-        def create_session(user):
-            s = SessionStore()
-            s['_auth_user_id'] = user.id
-            s['_auth_user_backend'] = 'django.contrib.auth.backends.ModelBackend'
-            s['_auth_user_hash'] = user.get_session_auth_hash()
-            s.save()
-            return s.session_key
-
-        org_sess = create_session(organizer_user)
-        jdg_a_sess = create_session(judge_a_user)
-        jdg_b_sess = create_session(judge_b_user)
-        prt_sess = create_session(participant_user)
+        # 10. Generate short-lived, signed API credentials for the HTTP checker.
+        # Browser users continue to use ordinary Django sessions and CSRF.
+        signer = signing.TimestampSigner(salt='fairpanel-checker')
+        org_token = signer.sign(organizer_user.id)
+        judge_a_token = signer.sign(judge_a_user.id)
+        judge_b_token = signer.sign(judge_b_user.id)
+        participant_token = signer.sign(participant_user.id)
 
         self.stdout.write(self.style.SUCCESS('Seeded successfully!'))
-        self.stdout.write("Test logins:")
-        self.stdout.write(f"  organizer    Cookie: sessionid={org_sess} (email: organizer@fairpanel.local / DemoPassword2026!)")
-        self.stdout.write(f"  judge_a      Cookie: sessionid={jdg_a_sess} (email: tomas.varga@example.org / DemoPassword2026!)")
-        self.stdout.write(f"  judge_b      Cookie: sessionid={jdg_b_sess} (email: sara.lindqvist@example.org / DemoPassword2026!)")
-        self.stdout.write(f"  participant  Cookie: sessionid={prt_sess} (email: participant@fairpanel.local / DemoPassword2026!)")
+        self.stdout.write("Checker headers (expire after 12 hours):")
+        self.stdout.write(f"  organizer    Authorization: Bearer {org_token}")
+        self.stdout.write(f"  judge_a      Authorization: Bearer {judge_a_token}")
+        self.stdout.write(f"  judge_b      Authorization: Bearer {judge_b_token}")
+        self.stdout.write(f"  participant  Authorization: Bearer {participant_token}")
 
         # 11. Write .dogfood.toml
         dogfood_content = f"""[portal]
@@ -367,10 +363,10 @@ claimed = ["T1", "T2"]
 pitch = "Self-hosted hackathon submission and transparent judging portal with conservative normalization."
 
 [auth]
-organizer   = "Cookie: sessionid={org_sess}"
-judge_a     = "Cookie: sessionid={jdg_a_sess}"
-judge_b     = "Cookie: sessionid={jdg_b_sess}"
-participant = "Cookie: sessionid={prt_sess}"
+organizer   = "Authorization: Bearer {org_token}"
+judge_a     = "Authorization: Bearer {judge_a_token}"
+judge_b     = "Authorization: Bearer {judge_b_token}"
+participant = "Authorization: Bearer {participant_token}"
 
 [routes]
 gallery      = "/projects"

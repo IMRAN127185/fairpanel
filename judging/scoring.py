@@ -45,6 +45,31 @@ def compute_pool_results(
     Computes raw and adjusted results for a pool of projects and reviews.
     Implements overlap_bias_v1 normalization algorithm.
     """
+    # Different tracks are independent ranking pools. Never compare a judge's
+    # severity or a project's rank with an unrelated track's rubric population.
+    track_ids = {project.get('track_id') for project in projects}
+    if len(track_ids) > 1:
+        combined = {
+            'projects': [], 'pool_warnings': [], 'judge_severity': {},
+            'judge_calibrated': {}, 'judge_warnings': {}, 'is_graph_connected': True,
+        }
+        for track_id in sorted(track_ids, key=lambda value: str(value)):
+            track_projects = [project for project in projects if project.get('track_id') == track_id]
+            project_ids = {project['id'] for project in track_projects}
+            track_reviews = [review for review in reviews if review['project_id'] in project_ids]
+            pool = compute_pool_results(track_projects, track_reviews, criteria_defs, min_required_reviews)
+            for row in pool['projects']:
+                row['track_id'] = track_id
+            combined['projects'].extend(pool['projects'])
+            combined['pool_warnings'].extend(f'Track {track_id}: {warning}' for warning in pool['pool_warnings'])
+            combined['judge_warnings'].update({f'{track_id}:{judge}': warnings
+                                               for judge, warnings in pool['judge_warnings'].items()})
+            combined['judge_severity'].update({f'{track_id}:{judge}': severity
+                                               for judge, severity in pool['judge_severity'].items()})
+            combined['judge_calibrated'].update({f'{track_id}:{judge}': calibrated
+                                                 for judge, calibrated in pool['judge_calibrated'].items()})
+            combined['is_graph_connected'] &= pool['is_graph_connected']
+        return combined
     # 1. Calculate weighted score for each review
     review_scores = {}  # review_id -> float (0-100)
     judge_project_scores = defaultdict(dict)  # judge_id -> {project_id: score}
@@ -126,11 +151,11 @@ def compute_pool_results(
         if is_constant:
             judge_warnings[j_id].append("Constant scorer detected")
 
-        # Must have at least 3 overlapping reviewed projects, not constant, and in main connected component
+        # Never calibrate across disconnected reviewer components.
         can_calibrate = (
             n_overlap >= 3 and
             not is_constant and
-            (is_graph_connected or (components and j_id in components[0]))
+            is_graph_connected
         )
 
         if can_calibrate and diffs:
@@ -151,6 +176,9 @@ def compute_pool_results(
 
     if not is_graph_connected and len(all_judges) > 1:
         pool_warnings.append("Judge overlap graph is disconnected into multiple components")
+    adjustment_available = is_graph_connected and any(judge_calibrated.values())
+    if not adjustment_available:
+        pool_warnings.append('Adjusted ranking unavailable: reviewer overlap is insufficient or disconnected')
 
     for p in projects:
         p_id = p['id']
@@ -165,7 +193,7 @@ def compute_pool_results(
             project_results.append({
                 'project_id': p_id,
                 'title': p.get('title', ''),
-                'raw_score': 0.0,
+                'raw_score': None,
                 'adjusted_score': None,
                 'review_count': 0,
                 'eligible_review_count': 0,
@@ -188,11 +216,14 @@ def compute_pool_results(
                 adjusted_review_scores.append(score)
                 has_uncalibrated = True
 
-        adjusted_mean = sum(adjusted_review_scores) / len(adjusted_review_scores)
+        adjusted_mean = (sum(adjusted_review_scores) / len(adjusted_review_scores)
+                         if adjustment_available else None)
 
         norm_status = "mixed" if has_uncalibrated else "calibrated"
         if all(not judge_calibrated.get(j, False) for j in judges_dict.keys()):
             norm_status = "uncalibrated"
+        if not adjustment_available:
+            warnings.append('Adjusted ranking unavailable for this track')
 
         project_results.append({
             'project_id': p_id,
@@ -206,18 +237,27 @@ def compute_pool_results(
         })
 
     # 6. Rank projects (raw and adjusted)
-    # Sort by raw_score descending
-    project_results.sort(key=lambda x: (-x['raw_score'], x['project_id']))
+    # Projects without a review have no score or rank.
+    project_results.sort(key=lambda x: (x['raw_score'] is None,
+                                        -(x['raw_score'] or 0), x['project_id']))
     for i, res in enumerate(project_results):
-        res['raw_rank'] = i + 1
+        if res['raw_score'] is None:
+            res['raw_rank'] = None
+        elif i and project_results[i - 1]['raw_score'] is not None and abs(project_results[i - 1]['raw_score'] - res['raw_score']) < 1e-5:
+            res['raw_rank'] = project_results[i - 1]['raw_rank']
+        else:
+            res['raw_rank'] = i + 1
 
     # Check ties in raw score
     for i in range(len(project_results)):
         res = project_results[i]
         is_tied = False
-        if i > 0 and abs(project_results[i-1]['raw_score'] - res['raw_score']) < 1e-5:
+        if res['raw_score'] is None:
+            res['tied'] = False
+            continue
+        if i > 0 and project_results[i-1]['raw_score'] is not None and abs(project_results[i-1]['raw_score'] - res['raw_score']) < 1e-5:
             is_tied = True
-        if i < len(project_results) - 1 and abs(project_results[i+1]['raw_score'] - res['raw_score']) < 1e-5:
+        if i < len(project_results) - 1 and project_results[i+1]['raw_score'] is not None and abs(project_results[i+1]['raw_score'] - res['raw_score']) < 1e-5:
             is_tied = True
         res['tied'] = is_tied
 
@@ -226,7 +266,10 @@ def compute_pool_results(
     valid_adj = [p for p in project_results if p['adjusted_score'] is not None]
     valid_adj.sort(key=lambda x: (-x['adjusted_score'], x['project_id']))
     for i, res in enumerate(valid_adj):
-        res['adjusted_rank'] = i + 1
+        if i and abs(valid_adj[i - 1]['adjusted_score'] - res['adjusted_score']) < 1e-5:
+            res['adjusted_rank'] = valid_adj[i - 1]['adjusted_rank']
+        else:
+            res['adjusted_rank'] = i + 1
 
     for res in project_results:
         if res['adjusted_score'] is None:

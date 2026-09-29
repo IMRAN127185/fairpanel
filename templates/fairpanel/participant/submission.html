@@ -107,6 +107,17 @@
         <h2 class="panel-title" style="margin-bottom: 16px;">Repository &amp; Media Links</h2>
 
         <div class="form-group">
+          <label class="form-label" for="proj-thumbnail">Gallery Cover Image URL</label>
+          <input type="url" id="proj-thumbnail" name="thumbnail_url" value="{{ project.thumbnail_url|default:'' }}" class="form-input" placeholder="https://example.com/cover.jpg" {% if not is_open %}disabled{% endif %}>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Use a wide image (16:9 recommended). This appears on your public project card.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="proj-images">More Project Images</label>
+          <textarea id="proj-images" name="images" class="form-textarea" rows="3" placeholder="One image URL per line" {% if not is_open %}disabled{% endif %}></textarea>
+          <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">Add up to six image URLs, one per line, for your project detail page.</p>
+        </div>
+
+        <div class="form-group">
           <label class="form-label" for="proj-repo">Source Code Repository URL</label>
           <input type="url" id="proj-repo" name="repo_url" value="{{ project.repo_url|default:'' }}" class="form-input" placeholder="https://github.com/..." {% if not is_open %}disabled{% endif %}>
         </div>
@@ -177,5 +188,6 @@
   </div>
 </div>
 
+{{ project.images|json_script:"existing-project-images" }}
 <script src="{% static 'fairpanel/js/submission.js' %}"></script>
 {% endblock %}

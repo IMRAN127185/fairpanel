@@ -56,7 +56,15 @@ const FairPanel = (() => {
 
     const method = (options.method || 'GET').toUpperCase();
     if (method !== 'GET' && method !== 'HEAD') {
-      const csrf = getCsrfToken();
+      let csrf = getCsrfToken();
+      if (!csrf) {
+        const csrfResponse = await fetch('/api/v1/auth/csrf', {
+          credentials: 'same-origin',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!csrfResponse.ok) throw new Error('Unable to start a secure session. Please reload.');
+        csrf = getCsrfToken() || (await csrfResponse.json()).data.csrf_token;
+      }
       if (csrf) {
         headers['X-CSRFToken'] = csrf;
       }

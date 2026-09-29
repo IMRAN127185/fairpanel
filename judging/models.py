@@ -129,9 +129,12 @@ class ResultRow(models.Model):
     id = models.CharField(max_length=64, primary_key=True, default=gen_result_row_id, editable=False)
     snapshot = models.ForeignKey(ResultSnapshot, on_delete=models.CASCADE, related_name='rows')
     project = models.ForeignKey('projects.Project', on_delete=models.CASCADE, related_name='result_rows')
-    raw_score = models.FloatField()
+    project_title = models.CharField(max_length=255, blank=True)
+    project_tagline = models.CharField(max_length=500, blank=True)
+    track_name = models.CharField(max_length=255, blank=True)
+    raw_score = models.FloatField(null=True, blank=True)
     adjusted_score = models.FloatField(null=True, blank=True)
-    raw_rank = models.IntegerField()
+    raw_rank = models.IntegerField(null=True, blank=True)
     adjusted_rank = models.IntegerField(null=True, blank=True)
     review_count = models.IntegerField(default=0)
     eligible_review_count = models.IntegerField(default=0)
@@ -144,4 +147,4 @@ class ResultRow(models.Model):
         ordering = ['raw_rank']
 
     def __str__(self):
-        return f"Rank #{self.raw_rank}: {self.project.title}"
+        return f"Rank #{self.raw_rank}: {self.project_title or self.project.title}"

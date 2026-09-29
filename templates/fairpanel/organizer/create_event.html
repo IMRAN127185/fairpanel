@@ -12,6 +12,7 @@
   </div>
 
   <div class="panel">
+    {% if error %}<div class="alert alert-error" role="alert">{{ error }}</div>{% endif %}
     <form method="POST">
       {% csrf_token %}
       <div class="form-group">
@@ -33,6 +34,22 @@
           <label class="form-label" for="event-capacity">Max Members per Team</label>
           <input type="number" id="event-capacity" name="team_capacity" value="4" min="1" max="20" class="form-input">
         </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="event-close">Submissions Close (UTC, ISO 8601) *</label>
+        <input type="text" id="event-close" name="submissions_close" class="form-input"
+               placeholder="2026-10-01T18:00:00Z" value="{{ request.POST.submissions_close|default:'' }}" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="event-tracks">Tracks (one per line) *</label>
+        <textarea id="event-tracks" name="tracks" class="form-textarea" required
+                  placeholder="Developer Tools&#10;Accessibility">{{ request.POST.tracks|default:'' }}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="event-prizes">Prizes (one name per line)</label>
+        <textarea id="event-prizes" name="prizes" class="form-textarea"
+                  placeholder="Grand Prize&#10;Best Design">{{ request.POST.prizes|default:'' }}</textarea>
       </div>
 
       <div style="display: flex; gap: 12px; margin-top: 20px;">

@@ -28,6 +28,11 @@ ENV/
 
 # Environment and sensitive data
 .env
+.dogfood.toml
+data/.django-secret
+data/*.sqlite3
+data/chrome-preview-profile/
+data/gallery-preview.png
 *.local
 
 # Django
