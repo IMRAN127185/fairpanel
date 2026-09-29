@@ -1,0 +1,137 @@
+{% extends "fairpanel/participant/base_participant.html" %}
+{% load static %}
+
+{% block workspace_title %}Team — {{ event.name }}{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <a href="/participant/" style="font-size: 13px; color: var(--text-secondary);">&larr; Back to Dashboard</a>
+  <h1 style="font-size: 26px; font-weight: 700; margin-top: 8px;">Team Management</h1>
+  <p style="color: var(--text-secondary); font-size: 14px;">Event: {{ event.name }} (Capacity: {{ event.team_capacity }} members max)</p>
+</div>
+
+{% if team %}
+  <div class="panel">
+    <div class="panel-header">
+      <div>
+        <h2 class="panel-title">{{ team.name }}</h2>
+        <div style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+          Members: {{ team.member_count }} of {{ team.capacity }}
+        </div>
+      </div>
+      {% if is_captain and not team.is_full %}
+        <button id="btn-create-invite" class="btn btn-primary btn-sm" data-team-id="{{ team.id }}">+ Invite Teammate</button>
+      {% endif %}
+    </div>
+
+    <!-- Active Members List -->
+    <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Team Roster</h3>
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 24px;">
+      {% for m in members %}
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-1); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+          <div>
+            <span style="font-weight: 600; color: #ffffff;">{{ m.user.display_name }}</span>
+            <span style="font-size: 13px; color: var(--text-muted); margin-left: 8px;">{{ m.user.email }}</span>
+          </div>
+          <div>
+            {% if m.user == team.captain %}
+              <span class="badge badge-active">Captain</span>
+            {% else %}
+              <span class="badge badge-neutral">Member</span>
+            {% endif %}
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+
+    <!-- Pending / Active Invitations -->
+    {% if is_captain and invites %}
+      <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Active Invitations</h3>
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        {% for inv in invites %}
+          <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-2); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+            <div>
+              <span style="font-size: 13px; font-family: monospace; color: #93c5fd;">/invites/team/{{ inv.raw_token|default:inv.id }}/</span>
+              <span style="font-size: 12px; color: var(--text-muted); margin-left: 12px;">Used: {{ inv.times_used }}/{{ inv.usage_limit }}</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin + '/invites/team/{{ inv.raw_token }}/'); FairPanel.showToast('Copied invite link!', 'info');">Copy Link</button>
+              <button class="btn btn-danger btn-sm btn-revoke-invite" data-invite-id="{{ inv.id }}">Revoke</button>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+{% else %}
+  <!-- Create Team Form -->
+  <div class="panel" style="max-width: 500px;">
+    <h2 class="panel-title" style="margin-bottom: 16px;">Form a New Team</h2>
+    <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 20px;">
+      You will become the captain of this team and can invite up to {{ event.team_capacity|add:"-1" }} additional collaborators.
+    </p>
+
+    <form id="form-create-team">
+      <div class="form-group">
+        <label class="form-label" for="team_name">Team Name</label>
+        <input type="text" id="team_name" name="name" class="form-input" required placeholder="e.g. Quantum Pilots">
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="btn-submit-team" style="width: 100%;">Create Team</button>
+    </form>
+  </div>
+{% endif %}
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    // 1. Create team
+    const formTeam = document.getElementById('form-create-team');
+    if (formTeam) {
+      formTeam.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = formTeam.name.value.trim();
+        if (!name) return;
+
+        try {
+          await FairPanel.post(`/api/v1/events/{{ event.id }}/teams`, { name });
+          FairPanel.showToast('Team created!', 'success');
+          setTimeout(() => location.reload(), 800);
+        } catch (err) {
+          FairPanel.showToast(err.message || 'Failed to create team', 'error');
+        }
+      });
+    }
+
+    // 2. Generate invite
+    const btnInvite = document.getElementById('btn-create-invite');
+    if (btnInvite) {
+      btnInvite.addEventListener('click', async () => {
+        try {
+          const res = await FairPanel.post(`/api/v1/teams/{{ team.id }}/invites`, {});
+          const inviteUrl = window.location.origin + res.invite_url;
+          navigator.clipboard.writeText(inviteUrl);
+          FairPanel.showToast('Invitation generated and copied to clipboard!', 'success');
+          setTimeout(() => location.reload(), 1000);
+        } catch (err) {
+          FairPanel.showToast(err.message || 'Failed to create invite', 'error');
+        }
+      });
+    }
+
+    // 3. Revoke invite
+    document.querySelectorAll('.btn-revoke-invite').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Revoke this invitation? It will immediately become unusable.')) return;
+        try {
+          await FairPanel.delete(`/api/v1/team-invites/${btn.dataset.inviteId}`);
+          FairPanel.showToast('Invite revoked', 'info');
+          setTimeout(() => location.reload(), 600);
+        } catch (err) {
+          FairPanel.showToast(err.message || 'Failed to revoke invite', 'error');
+        }
+      });
+    });
+  });
+</script>
+{% endblock %}

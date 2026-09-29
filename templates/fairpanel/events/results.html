@@ -1,0 +1,103 @@
+{% extends "fairpanel/base.html" %}
+{% load static %}
+
+{% block title %}Results: {{ event.name }} — FairPanel{% endblock %}
+
+{% block navbar %}
+<nav style="height: 64px; background: var(--surface-1); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; padding: 0 24px;">
+  <a href="/events/{{ event.id }}/" style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary);">
+    &larr; Event Overview
+  </a>
+  <div style="display: flex; gap: 12px;">
+    <a href="/projects/?event={{ event.id }}" class="btn btn-secondary btn-sm">Browse Gallery</a>
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 1080px; margin: 0 auto; padding: 40px 24px;">
+  <div style="margin-bottom: 32px;">
+    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 10px;">
+      <span class="badge badge-published">Official Publication</span>
+      {% if snapshot %}
+        <span style="font-size: 13px; color: var(--text-muted);">Revision {{ snapshot.revision }} &bull; Published {{ snapshot.published_at|date:"M j, Y H:i" }} UTC</span>
+      {% endif %}
+    </div>
+    <h1 style="font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 8px;">Final Results — {{ event.name }}</h1>
+    <p style="color: var(--text-secondary); font-size: 15px;">
+      Transparent hackathon rankings computed with peer evaluation and documented normalization.
+    </p>
+  </div>
+
+  {% if snapshot %}
+    <div class="panel">
+      <div class="panel-header">
+        <h2 class="panel-title">Standings ({% if snapshot.ranking_method == 'adjusted' %}Adjusted Score{% else %}Raw Mean{% endif %})</h2>
+        <span class="badge badge-neutral">Snapshot Method: {{ snapshot.get_ranking_method_display }}</span>
+      </div>
+
+      <div class="data-table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 80px;">Rank</th>
+              <th>Project Title</th>
+              <th>Track</th>
+              <th style="text-align: right;">Score (0-100)</th>
+              <th style="text-align: right;">Reviews</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td style="font-weight: 700; font-size: 16px;">
+                  {% if forloop.counter == 1 %}🥇 1
+                  {% elif forloop.counter == 2 %}🥈 2
+                  {% elif forloop.counter == 3 %}🥉 3
+                  {% else %}#{{ row.raw_rank }}
+                  {% endif %}
+                  {% if row.tied %}<span style="font-size: 11px; color: var(--text-muted);">(Tied)</span>{% endif %}
+                </td>
+                <td>
+                  <a href="/projects/{{ row.project.id }}/" style="font-weight: 600; color: #ffffff; text-decoration: none;">
+                    {{ row.project.title }}
+                  </a>
+                  {% if row.project.tagline %}
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">{{ row.project.tagline|truncatewords:14 }}</div>
+                  {% endif %}
+                </td>
+                <td>
+                  {% if row.project.track %}
+                    <span class="badge badge-neutral">{{ row.project.track.name }}</span>
+                  {% else %}
+                    <span style="color: var(--text-muted);">—</span>
+                  {% endif %}
+                </td>
+                <td style="text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">
+                  {% if snapshot.ranking_method == 'adjusted' and row.adjusted_score is not None %}
+                    {{ row.adjusted_score|floatformat:2 }}
+                  {% else %}
+                    {{ row.raw_score|floatformat:2 }}
+                  {% endif %}
+                </td>
+                <td style="text-align: right; color: var(--text-secondary); font-variant-numeric: tabular-nums;">
+                  {{ row.review_count }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {% else %}
+    <div class="panel" style="text-align: center; padding: 60px 20px;">
+      <div style="font-size: 40px; margin-bottom: 12px;" aria-hidden="true">🔒</div>
+      <h2 style="font-size: 22px; font-weight: 600; margin-bottom: 8px;">Results are not published yet</h2>
+      <p style="color: var(--text-secondary); max-width: 500px; margin: 0 auto 24px; line-height: 1.5;">
+        The judging and organizer review process is currently underway. Official frozen standings will appear here once published by the event organizer.
+      </p>
+      <a href="/projects/?event={{ event.id }}" class="btn btn-secondary">Browse Submitted Projects</a>
+    </div>
+  {% endif %}
+</div>
+{% endblock %}

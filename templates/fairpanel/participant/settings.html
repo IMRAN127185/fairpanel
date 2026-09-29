@@ -1,0 +1,74 @@
+{% extends "fairpanel/participant/base_participant.html" %}
+{% load static %}
+
+{% block workspace_title %}Participant Settings{% endblock %}
+
+{% block workspace_content %}
+<div style="max-width: 680px; margin: 0 auto;">
+  <div style="margin-bottom: 28px;">
+    <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Participant Preferences</h1>
+    <p style="color: var(--text-secondary); font-size: 14px;">
+      Manage your personal profile and display settings for participant interactions.
+    </p>
+  </div>
+
+  <div class="panel">
+    <form id="form-participant-settings">
+      <div class="form-group">
+        <label class="form-label" for="id_display_name">Display Name</label>
+        <input type="text" id="id_display_name" name="display_name" value="{{ settings.preferences.display_name|default:user.display_name }}" class="form-input" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="id_bio">Participant Bio</label>
+        <textarea id="id_bio" name="bio" class="form-textarea" placeholder="Brief background about yourself...">{{ settings.preferences.bio|default:'' }}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="id_skills">Skills (comma separated)</label>
+        <input type="text" id="id_skills" name="skills" value="{{ settings.preferences.skills|join:', ' }}" class="form-input" placeholder="e.g. Python, Machine Learning, UI Design">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="id_timezone">Preferred Timezone</label>
+        <input type="text" id="id_timezone" name="timezone" value="{{ settings.preferences.timezone|default:'UTC' }}" class="form-input">
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
+        <button type="submit" class="btn btn-primary" id="btn-save-settings">Save Preferences</button>
+        <a href="/account/security/" style="font-size: 13px; color: var(--text-muted); text-decoration: underline;">
+          Account Security &amp; Password
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  document.getElementById('form-participant-settings').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const payload = {
+      display_name: form.display_name.value.trim(),
+      bio: form.bio.value.trim(),
+      skills: form.skills.value.split(',').map(s => s.trim()).filter(Boolean),
+      timezone: form.timezone.value.trim(),
+      version: {{ settings.version }}
+    };
+
+    const btn = document.getElementById('btn-save-settings');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      await FairPanel.patch('/api/v1/settings/participant', payload);
+      FairPanel.showToast('Preferences updated successfully', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      FairPanel.showToast(err.message || 'Failed to update preferences', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Save Preferences';
+    }
+  });
+</script>
+{% endblock %}

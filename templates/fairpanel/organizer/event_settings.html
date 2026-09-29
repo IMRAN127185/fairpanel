@@ -1,0 +1,115 @@
+{% extends "fairpanel/organizer/base_organizer.html" %}
+{% load static %}
+
+{% block workspace_title %}Settings — {{ event.name }}{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Event Settings &amp; Configuration</h1>
+  <p style="color: var(--text-secondary); font-size: 14px;">Event: {{ event.name }}</p>
+</div>
+
+<!-- Schedule & Operational Rules -->
+<div class="panel">
+  <h2 class="panel-title" style="margin-bottom: 16px;">Schedule &amp; Deadlines</h2>
+  <form id="form-event-dates">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 16px;">
+      <div class="form-group">
+        <label class="form-label" for="sub-open">Submissions Open (ISO UTC)</label>
+        <input type="text" id="sub-open" name="submissions_open" value="{{ event.submissions_open|date:'Y-m-d\TH:i:s'|default:'' }}" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="sub-close">Submissions Close (ISO UTC) *</label>
+        <input type="text" id="sub-close" name="submissions_close" value="{{ event.submissions_close|date:'Y-m-d\TH:i:s'|default:'' }}" class="form-input" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="jdg-open">Judging Open (ISO UTC)</label>
+        <input type="text" id="jdg-open" name="judging_open" value="{{ event.judging_open|date:'Y-m-d\TH:i:s'|default:'' }}" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="jdg-close">Judging Close (ISO UTC)</label>
+        <input type="text" id="jdg-close" name="judging_close" value="{{ event.judging_close|date:'Y-m-d\TH:i:s'|default:'' }}" class="form-input">
+      </div>
+    </div>
+
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+      <div class="form-group">
+        <label class="form-label" for="team-cap">Team Capacity Limit</label>
+        <input type="number" id="team-cap" name="team_capacity" value="{{ event.team_capacity }}" min="1" max="20" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="min-reviews">Target Reviews per Project</label>
+        <input type="number" id="min-reviews" name="min_reviews_per_project" value="{{ event.min_reviews_per_project }}" min="1" max="10" class="form-input">
+      </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" id="btn-save-dates">Save Schedule &amp; Limits</button>
+  </form>
+</div>
+
+<!-- Evaluation Rubric & Criteria -->
+<div class="panel">
+  <div class="panel-header">
+    <div>
+      <h2 class="panel-title">Evaluation Rubric (v{{ rubric.version }})</h2>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+        Weighted criteria used by judges to evaluate submissions.
+      </p>
+    </div>
+    {% if rubric.is_locked %}
+      <span class="badge badge-conflict" style="padding: 6px 12px;">Locked (Scoring in progress)</span>
+    {% else %}
+      <span class="badge badge-active" style="padding: 6px 12px;">Editable</span>
+    {% endif %}
+  </div>
+
+  <div class="data-table-wrapper" style="margin-bottom: 16px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Criterion Key</th>
+          <th>Name</th>
+          <th>Scale</th>
+          <th>Weight</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in criteria %}
+          <tr>
+            <td><code>{{ c.key }}</code></td>
+            <td style="font-weight: 600;">{{ c.name }}</td>
+            <td>{{ c.min_score|floatformat:0 }} &ndash; {{ c.max_score|floatformat:0 }}</td>
+            <td style="font-weight: 600;">{{ c.weight|floatformat:1 }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+  document.getElementById('form-event-dates').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const payload = {
+      submissions_close: form.submissions_close.value.trim() || null,
+      submissions_open: form.submissions_open.value.trim() || null,
+      judging_open: form.judging_open.value.trim() || null,
+      judging_close: form.judging_close.value.trim() || null,
+      team_capacity: form.team_capacity.value,
+      min_reviews_per_project: form.min_reviews_per_project.value
+    };
+
+    const btn = document.getElementById('btn-save-dates');
+    btn.disabled = true;
+    try {
+      await FairPanel.patch('/api/v1/events/{{ event.id }}', payload);
+      FairPanel.showToast('Event settings saved', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      FairPanel.showToast(err.message || 'Failed to update settings', 'error');
+      btn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

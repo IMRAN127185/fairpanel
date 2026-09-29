@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="none" role="img" aria-label="FairPanel Logo">
+  <circle cx="50" cy="50" r="48" fill="#ffffff" />
+  <g transform="translate(14, 14) scale(0.72)">
+    <!-- Scale icon representing balanced judging -->
+    <path d="M50 18 L50 78" stroke="#121214" stroke-width="6" stroke-linecap="round" />
+    <path d="M22 34 L78 34" stroke="#121214" stroke-width="5" stroke-linecap="round" />
+    <circle cx="50" cy="18" r="5" fill="#121214" />
+    <!-- Left balance pan -->
+    <path d="M22 34 L12 56 L32 56 Z" fill="#121214" />
+    <path d="M12 56 Q22 66 32 56" fill="#121214" />
+    <!-- Right balance pan -->
+    <path d="M78 34 L68 56 L88 56 Z" fill="#121214" />
+    <path d="M68 56 Q78 66 88 56" fill="#121214" />
+    <!-- Base stand -->
+    <path d="M34 78 L66 78" stroke="#121214" stroke-width="6" stroke-linecap="round" />
+  </g>
+</svg>

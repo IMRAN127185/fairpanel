@@ -1,0 +1,86 @@
+{% extends "fairpanel/organizer/base_organizer.html" %}
+{% load static %}
+
+{% block workspace_title %}{{ event.name }} — Overview{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/organizer/events/{{ event.id }}/results/" class="btn btn-primary btn-sm">Review Results &rarr;</a>
+{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 6px;">
+    {% if event.is_submission_open %}
+      <span class="badge badge-active">Submissions Open</span>
+    {% elif event.status == 'published' %}
+      <span class="badge badge-published">Results Published</span>
+    {% else %}
+      <span class="badge badge-closed">Submissions Closed</span>
+    {% endif %}
+    <span style="font-size: 13px; color: var(--text-muted);">{{ event.timezone }}</span>
+  </div>
+  <h1 style="font-size: 28px; font-weight: 700; margin-bottom: 6px;">{{ event.name }}</h1>
+  <p style="color: var(--text-secondary); font-size: 14.5px;">{{ event.description }}</p>
+</div>
+
+<!-- Key Stat Cards -->
+<div class="stat-grid">
+  <div class="stat-card">
+    <div class="stat-card-label">Submissions</div>
+    <div class="stat-card-value">{{ submissions_count }}</div>
+    <div style="margin-top: 10px;">
+      <a href="/organizer/events/{{ event.id }}/submissions/" style="font-size: 13px; color: #93c5fd; text-decoration: underline;">View Submissions &rarr;</a>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-label">Judges Registered</div>
+    <div class="stat-card-value">{{ judges_count }}</div>
+    <div style="margin-top: 10px;">
+      <a href="/organizer/events/{{ event.id }}/judges/" style="font-size: 13px; color: #93c5fd; text-decoration: underline;">Manage Judges &rarr;</a>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-label">Participating Teams</div>
+    <div class="stat-card-value">{{ teams_count }}</div>
+    <div style="margin-top: 10px;">
+      <span style="font-size: 13px; color: var(--text-muted);">Up to {{ event.team_capacity }} members each</span>
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-label">Submitted Reviews</div>
+    <div class="stat-card-value">{{ reviews_count }}</div>
+    <div style="margin-top: 10px;">
+      <a href="/organizer/events/{{ event.id }}/results/" style="font-size: 13px; color: #93c5fd; text-decoration: underline;">Results Review &rarr;</a>
+    </div>
+  </div>
+</div>
+
+<!-- Operational Quick Links -->
+<div class="panel">
+  <h2 class="panel-title" style="margin-bottom: 16px;">Operational Actions</h2>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px;">
+    <a href="/organizer/events/{{ event.id }}/submissions/" class="panel" style="background: var(--surface-1); margin-bottom: 0; text-decoration: none;">
+      <div style="font-weight: 600; color: #ffffff; margin-bottom: 4px;">Eligibility &amp; Submissions</div>
+      <p style="font-size: 13px; color: var(--text-secondary);">Review duplicate submissions and flag ineligible projects with mandatory reasons.</p>
+    </a>
+
+    <a href="/organizer/events/{{ event.id }}/judges/" class="panel" style="background: var(--surface-1); margin-bottom: 0; text-decoration: none;">
+      <div style="font-weight: 600; color: #ffffff; margin-bottom: 4px;">Balanced Judge Assignments</div>
+      <p style="font-size: 13px; color: var(--text-secondary);">Generate conflict-free balanced assignments and monitor completion progress.</p>
+    </a>
+
+    <a href="/organizer/events/{{ event.id }}/results/" class="panel" style="background: var(--surface-1); margin-bottom: 0; text-decoration: none;">
+      <div style="font-weight: 600; color: #ffffff; margin-bottom: 4px;">Results &amp; Normalization</div>
+      <p style="font-size: 13px; color: var(--text-secondary);">Inspect raw vs adjusted rankings, examine coverage warnings, and freeze publication.</p>
+    </a>
+
+    <a href="/organizer/events/{{ event.id }}/audit/" class="panel" style="background: var(--surface-1); margin-bottom: 0; text-decoration: none;">
+      <div style="font-weight: 600; color: #ffffff; margin-bottom: 4px;">Audit History &amp; CSV Exports</div>
+      <p style="font-size: 13px; color: var(--text-secondary);">Download official CSV exports and view tamper-evident operational history.</p>
+    </a>
+  </div>
+</div>
+{% endblock %}

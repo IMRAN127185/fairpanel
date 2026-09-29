@@ -1,0 +1,138 @@
+{% extends "fairpanel/base.html" %}
+{% load static %}
+
+{% block title %}{{ event.name }} — FairPanel{% endblock %}
+
+{% block navbar %}
+<nav style="height: 64px; background: var(--surface-1); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; padding: 0 24px;">
+  <a href="/events/" style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary);">
+    &larr; All Events
+  </a>
+  <div style="display: flex; gap: 12px; align-items: center;">
+    <a href="/projects/?event={{ event.id }}" style="font-size: 14px; color: var(--text-secondary);">Gallery</a>
+    {% if has_results %}
+      <a href="/events/{{ event.id }}/results/" class="btn btn-secondary btn-sm">Official Results</a>
+    {% endif %}
+    {% if user.is_authenticated %}
+      <a href="/dashboard/" class="btn btn-primary btn-sm">Dashboard</a>
+    {% else %}
+      <a href="/login/" class="btn btn-primary btn-sm">Sign In</a>
+    {% endif %}
+  </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 1080px; margin: 0 auto; padding: 40px 24px;">
+  <!-- Header -->
+  <div style="margin-bottom: 32px;">
+    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px;">
+      {% if event.is_submission_open %}
+        <span class="badge badge-active">Submissions Open</span>
+      {% elif event.status == 'published' %}
+        <span class="badge badge-published">Results Published</span>
+      {% else %}
+        <span class="badge badge-closed">Submissions Closed</span>
+      {% endif %}
+      <span style="font-size: 13px; color: var(--text-muted);">Timezone: {{ event.timezone }}</span>
+    </div>
+
+    <h1 style="font-size: 38px; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em;">{{ event.name }}</h1>
+    <p style="font-size: 16px; color: var(--text-secondary); line-height: 1.6; max-width: 800px;">
+      {{ event.description|default:"Welcome to this hackathon! Form teams, build your projects, and submit before the deadline." }}
+    </p>
+  </div>
+
+  <!-- Key Dates & Action Bar -->
+  <div class="panel" style="background: var(--surface-2); display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 20px;">
+    <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+      <div>
+        <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Submissions Close</div>
+        <div style="font-size: 15px; font-weight: 600; color: #ffffff;">
+          {{ event.submissions_close|date:"M j, Y H:i"|default:"TBD" }} UTC
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Team Size Limit</div>
+        <div style="font-size: 15px; font-weight: 600; color: #ffffff;">Up to {{ event.team_capacity }} members</div>
+      </div>
+      <div>
+        <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Min Reviews / Project</div>
+        <div style="font-size: 15px; font-weight: 600; color: #ffffff;">{{ event.min_reviews_per_project }} reviews</div>
+      </div>
+    </div>
+
+    <div>
+      {% if user.is_authenticated %}
+        {% if user_membership %}
+          {% if user_membership.role == 'organizer' %}
+            <a href="/organizer/events/{{ event.id }}/" class="btn btn-primary">Manage Event</a>
+          {% elif user_membership.role == 'judge' %}
+            <a href="/judge/?event={{ event.id }}" class="btn btn-primary">Open Judge Queue</a>
+          {% else %}
+            {% if user_team %}
+              <a href="/participant/events/{{ event.id }}/submission/" class="btn btn-primary">My Submission</a>
+            {% else %}
+              <a href="/participant/events/{{ event.id }}/team/" class="btn btn-primary">Form Team</a>
+            {% endif %}
+          {% endif %}
+        {% else %}
+          <button id="btn-join-event" class="btn btn-primary" data-event-id="{{ event.id }}">Join as Participant</button>
+        {% endif %}
+      {% else %}
+        <a href="/register/" class="btn btn-primary">Register to Participate</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Tracks -->
+  {% if tracks %}
+    <div class="panel">
+      <h2 class="panel-title">Competition Tracks</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+        {% for trk in tracks %}
+          <div style="background: var(--surface-1); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px;">
+            <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 6px; color: #ffffff;">{{ trk.name }}</h3>
+            <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.4;">{{ trk.description|default:"Open track for this category." }}</p>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Prizes -->
+  {% if prizes %}
+    <div class="panel">
+      <h2 class="panel-title">Prizes &amp; Awards</h2>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+        {% for prz in prizes %}
+          <div style="background: var(--surface-1); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 16px;">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+              <h3 style="font-size: 16px; font-weight: 600; color: #ffffff;">{{ prz.name }}</h3>
+              {% if prz.amount %}
+                <span style="font-size: 15px; font-weight: 700; color: #34d399;">{{ prz.amount }}</span>
+              {% endif %}
+            </div>
+            <p style="font-size: 13.5px; color: var(--text-secondary); line-height: 1.4;">{{ prz.description }}</p>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  document.getElementById('btn-join-event')?.addEventListener('click', async (e) => {
+    const eventId = e.target.dataset.eventId;
+    try {
+      await FairPanel.post(`/api/v1/events/${eventId}/join`, {});
+      FairPanel.showToast('Joined event successfully!', 'success');
+      setTimeout(() => {
+        window.location.href = `/participant/events/${eventId}/team/`;
+      }, 800);
+    } catch (err) {
+      FairPanel.showToast(err.message || 'Failed to join event', 'error');
+    }
+  });
+</script>
+{% endblock %}

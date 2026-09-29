@@ -1,0 +1,120 @@
+{% extends "fairpanel/base.html" %}
+{% load static %}
+
+{% block title %}Account Security — FairPanel{% endblock %}
+
+{% block navbar %}
+<nav style="height: 64px; background: var(--surface-1); border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; padding: 0 24px;">
+  <a href="/dashboard/" style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-secondary);">
+    &larr; Back to Dashboard
+  </a>
+  <div style="font-weight: 600; font-size: 14px;">Account Security</div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div style="max-width: 680px; margin: 40px auto; padding: 0 20px;">
+  <div style="margin-bottom: 28px;">
+    <h1 style="font-size: 28px; font-weight: 700; margin-bottom: 6px;">Account Security</h1>
+    <p style="color: var(--text-secondary); font-size: 14px;">
+      Manage password authentication and active login sessions across your entire account.
+    </p>
+  </div>
+
+  <div class="alert alert-info">
+    <strong>Account-wide settings:</strong> Changes made here affect your global account across all events and workspaces.
+  </div>
+
+  <!-- Change Password Panel -->
+  <div class="panel">
+    <h2 class="panel-title" style="margin-bottom: 16px;">Change Password</h2>
+    <form id="form-change-password">
+      <div class="form-group">
+        <label class="form-label" for="current_password">Current Password</label>
+        <input type="password" id="current_password" name="current_password" class="form-input" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="new_password">New Password</label>
+        <input type="password" id="new_password" name="new_password" class="form-input" required minlength="8" placeholder="At least 8 characters">
+      </div>
+
+      <button type="submit" class="btn btn-primary" id="btn-submit-password">
+        Update Password
+      </button>
+    </form>
+  </div>
+
+  <!-- Active Sessions Panel -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Active Login Sessions</h2>
+      <button class="btn btn-danger btn-sm" id="btn-revoke-others">Revoke Other Sessions</button>
+    </div>
+    <p style="color: var(--text-secondary); font-size: 13.5px; margin-bottom: 16px;">
+      If you signed in on a public or shared computer, you can revoke all other active sessions immediately.
+    </p>
+    <div id="sessions-list" style="display: flex; flex-direction: column; gap: 8px;">
+      <div style="color: var(--text-muted); font-size: 13px;">Loading sessions...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Password change
+    const formPwd = document.getElementById('form-change-password');
+    formPwd.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const current_password = formPwd.current_password.value;
+      const new_password = formPwd.new_password.value;
+
+      try {
+        await FairPanel.post('/api/v1/auth/password/change', { current_password, new_password });
+        FairPanel.showToast('Password changed successfully!', 'success');
+        formPwd.reset();
+      } catch (err) {
+        FairPanel.showToast(err.message || 'Failed to change password', 'error');
+      }
+    });
+
+    // 2. Load sessions
+    async function loadSessions() {
+      const container = document.getElementById('sessions-list');
+      try {
+        const sessions = await FairPanel.get('/api/v1/auth/sessions');
+        if (!sessions || sessions.length === 0) {
+          container.innerHTML = '<div style="color: var(--text-muted);">No other active sessions.</div>';
+          return;
+        }
+        container.innerHTML = sessions.map(s => `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-1); padding: 12px 16px; border-radius: var(--radius-sm); border: 1px solid var(--border-subtle); font-size: 13px;">
+            <div>
+              <strong>Session ID:</strong> <code>${s.session_key}</code>
+              ${s.is_current ? '<span class="badge badge-active" style="margin-left: 8px;">Current Session</span>' : ''}
+            </div>
+            <div style="color: var(--text-muted);">Expires: ${new Date(s.expires_at).toLocaleDateString()}</div>
+          </div>
+        `).join('');
+      } catch (err) {
+        container.innerHTML = '<div style="color: var(--text-muted);">Failed to load sessions.</div>';
+      }
+    }
+    loadSessions();
+
+    // 3. Revoke other sessions
+    document.getElementById('btn-revoke-others').addEventListener('click', async () => {
+      const pwd = prompt('Please enter your password to confirm session revocation:');
+      if (!pwd) return;
+
+      try {
+        const res = await FairPanel.post('/api/v1/auth/sessions/revoke-others', { current_password: pwd });
+        FairPanel.showToast(`Revoked ${res.revoked_count} active sessions`, 'success');
+        loadSessions();
+      } catch (err) {
+        FairPanel.showToast(err.message || 'Failed to revoke sessions', 'error');
+      }
+    });
+  });
+</script>
+{% endblock %}

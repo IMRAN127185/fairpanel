@@ -1,0 +1,118 @@
+{% extends "fairpanel/judge/base_judge.html" %}
+{% load static %}
+
+{% block workspace_title %}Review Queue{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+    <div>
+      <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Assigned Review Queue</h1>
+      <p style="color: var(--text-secondary); font-size: 14px;">
+        Independently evaluate assigned hackathon submissions using calibrated rubric guidelines.
+      </p>
+    </div>
+
+    <!-- Event Picker -->
+    {% if events.count > 1 %}
+      <div>
+        <label for="event-select" style="font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px;">Assigned Event</label>
+        <select id="event-select" class="form-select" style="min-width: 200px;" onchange="window.location.href='?event=' + this.value;">
+          {% for e in events %}
+            <option value="{{ e.id }}" {% if current_event and current_event.id == e.id %}selected{% endif %}>{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Progress Summary -->
+{% if current_event %}
+  <div class="panel" style="background: var(--surface-2); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+    <div>
+      <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 4px;">Current Event: <strong>{{ current_event.name }}</strong></div>
+      <div style="font-size: 18px; font-weight: 600; color: #ffffff;">
+        {{ completed_count }} of {{ total_count }} reviews submitted
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px;">
+      {% if completed_count == total_count and total_count > 0 %}
+        <span class="badge badge-active" style="padding: 6px 14px; font-size: 13px;">Queue Completed ✓</span>
+      {% else %}
+        <span class="badge badge-pending" style="padding: 6px 14px; font-size: 13px;">Evaluation In Progress</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Review Queue List -->
+  <div class="panel">
+    <div class="panel-header">
+      <h2 class="panel-title">Assigned Projects ({{ assignments|length }})</h2>
+    </div>
+
+    <div class="data-table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Project Title</th>
+            <th>Track</th>
+            <th>Status</th>
+            <th style="text-align: right;">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in assignments %}
+            <tr>
+              <td>
+                <div style="font-weight: 600; color: #ffffff;">{{ a.project.title }}</div>
+                {% if a.project.tagline %}
+                  <div style="font-size: 12.5px; color: var(--text-muted); margin-top: 2px;">{{ a.project.tagline|truncatewords:12 }}</div>
+                {% endif %}
+              </td>
+              <td>
+                {% if a.project.track %}
+                  <span class="badge badge-neutral">{{ a.project.track.name }}</span>
+                {% else %}
+                  <span style="color: var(--text-muted);">General</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if a.status == 'conflict' %}
+                  <span class="badge badge-conflict">Conflict Reported</span>
+                {% elif a.review and a.review.status == 'submitted' %}
+                  <span class="badge badge-completed">Score Submitted</span>
+                {% elif a.review and a.review.status == 'draft' %}
+                  <span class="badge badge-pending">Draft Saved</span>
+                {% else %}
+                  <span class="badge badge-neutral">Not Started</span>
+                {% endif %}
+              </td>
+              <td style="text-align: right;">
+                {% if a.status == 'conflict' %}
+                  <span style="font-size: 13px; color: var(--text-muted);">Suspended</span>
+                {% else %}
+                  <a href="/judge/projects/{{ a.project.id }}/" class="btn {% if a.review and a.review.status == 'submitted' %}btn-secondary{% else %}btn-primary{% endif %} btn-sm">
+                    {% if a.review and a.review.status == 'submitted' %}Revise Score{% else %}Score Project &rarr;{% endif %}
+                  </a>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 32px;">
+                No project assignments assigned to your queue yet.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% else %}
+  <div class="panel" style="text-align: center; padding: 48px 20px;">
+    <h2 style="font-size: 18px; margin-bottom: 8px;">No active judge assignments found</h2>
+    <p style="color: var(--text-secondary);">You need an invitation from an organizer to judge hackathon events.</p>
+  </div>
+{% endif %}
+{% endblock %}

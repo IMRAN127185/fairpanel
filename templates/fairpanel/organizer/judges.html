@@ -1,0 +1,146 @@
+{% extends "fairpanel/organizer/base_organizer.html" %}
+{% load static %}
+
+{% block workspace_title %}Judges &amp; Assignments — {{ event.name }}{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Judges &amp; Assignment Queue</h1>
+  <p style="color: var(--text-secondary); font-size: 14px;">
+    Manage judge invitations, track scopes, and execute balanced review assignments.
+  </p>
+</div>
+
+<!-- Balanced Assignment Runner Panel -->
+<div class="panel" style="background: var(--surface-2);">
+  <div class="panel-header">
+    <div>
+      <h2 class="panel-title">Balanced Judge Assignment</h2>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+        Executes a deterministic round-robin assignment targeting an even review count per project while strictly excluding conflicted team members.
+      </p>
+    </div>
+    <div style="display: flex; gap: 12px; align-items: center;">
+      <label for="input-reviews-per-project" style="font-size: 13px; color: var(--text-secondary);">Reviews/Project:</label>
+      <input type="number" id="input-reviews-per-project" value="{{ event.min_reviews_per_project }}" min="1" max="10" class="form-input" style="width: 70px; height: 36px; padding: 4px 8px;">
+      <button id="btn-run-balanced-assignment" class="btn btn-primary btn-sm" data-event-id="{{ event.id }}">
+        Run Balanced Assignment
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Judge Invitations & Roster -->
+<div class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Registered Judges ({{ judges|length }})</h2>
+    <button id="btn-invite-judge" class="btn btn-secondary btn-sm">+ Invite Judge</button>
+  </div>
+
+  <div class="data-table-wrapper" style="margin-bottom: 24px;">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Judge Name</th>
+          <th>Email</th>
+          <th>Track Scopes</th>
+          <th style="text-align: right;">Assignments</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for j in judges %}
+          <tr>
+            <td style="font-weight: 600; color: #ffffff;">{{ j.user.display_name }}</td>
+            <td style="color: var(--text-muted);">{{ j.user.email }}</td>
+            <td>
+              <span class="badge badge-neutral">All Tracks</span>
+            </td>
+            <td style="text-align: right; font-weight: 600;">
+              {{ j.user.assignments.count }}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">No judges registered.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Active Judge Invitations -->
+  {% if invites %}
+    <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 12px;">Active Judge Invitations</h3>
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      {% for inv in invites %}
+        <div style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-1); padding: 12px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); font-size: 13px;">
+          <div>
+            <span style="font-family: monospace; color: #c4b5fd;">/invites/judge/{{ inv.raw_token|default:inv.id }}/</span>
+            <span style="color: var(--text-muted); margin-left: 12px;">Used: {{ inv.times_used }}/{{ inv.usage_limit }}</span>
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin + '/invites/judge/{{ inv.raw_token }}/'); FairPanel.showToast('Copied judge invite link!', 'info');">
+            Copy Link
+          </button>
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<!-- Project Assignments Queue -->
+<div class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Active Review Assignments ({{ assignments|length }})</h2>
+  </div>
+
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Project</th>
+          <th>Judge</th>
+          <th>Status</th>
+          <th>Assigned At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in assignments %}
+          <tr>
+            <td style="font-weight: 600; color: #ffffff;">{{ a.project.title }}</td>
+            <td>{{ a.judge.display_name }}</td>
+            <td>
+              {% if a.status == 'conflict' %}
+                <span class="badge badge-conflict">Conflict: {{ a.conflict_reason }}</span>
+              {% elif a.review and a.review.status == 'submitted' %}
+                <span class="badge badge-completed">Completed</span>
+              {% else %}
+                <span class="badge badge-pending">Assigned</span>
+              {% endif %}
+            </td>
+            <td style="color: var(--text-muted); font-size: 12.5px;">{{ a.assigned_at|date:"M j, H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 24px;">No assignments created yet. Run balanced assignment above.</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="{% static 'fairpanel/js/organizer.js' %}"></script>
+<script>
+  document.getElementById('btn-invite-judge')?.addEventListener('click', async () => {
+    try {
+      const res = await FairPanel.post('/api/v1/events/{{ event.id }}/judge-invites', {});
+      const inviteUrl = window.location.origin + res.invite_url;
+      navigator.clipboard.writeText(inviteUrl);
+      FairPanel.showToast('Judge invitation link generated and copied to clipboard!', 'success');
+      setTimeout(() => location.reload(), 1000);
+    } catch (err) {
+      FairPanel.showToast(err.message || 'Failed to generate judge invite', 'error');
+    }
+  });
+</script>
+{% endblock %}

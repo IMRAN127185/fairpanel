@@ -1,0 +1,17 @@
+services:
+  web:
+    build: .
+    container_name: fairpanel_web
+    ports:
+      - "8080:8080"
+    environment:
+      - DJANGO_DEBUG=True
+      - PORT=8080
+    volumes:
+      - fairpanel_data:/app/data
+      - fairpanel_media:/app/media
+    restart: unless-stopped
+
+volumes:
+  fairpanel_data:
+  fairpanel_media:

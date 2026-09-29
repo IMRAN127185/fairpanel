@@ -1,0 +1,63 @@
+{% extends "fairpanel/base.html" %}
+{% load static %}
+
+{% block title %}Workspaces Chooser — FairPanel{% endblock %}
+
+{% block content %}
+<div style="max-width: 720px; margin: 60px auto; padding: 0 20px;">
+  <div style="margin-bottom: 32px; text-align: center;">
+    <h1 style="font-size: 30px; font-weight: 700; margin-bottom: 8px;">Authorized Workspaces</h1>
+    <p style="color: var(--text-secondary); font-size: 15px;">
+      Select the operational workspace and event you wish to work on.
+    </p>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 16px;">
+    <!-- Default Participant Workspace -->
+    <a href="/participant/" class="panel" style="display: flex; align-items: center; justify-content: space-between; text-decoration: none; margin-bottom: 0;">
+      <div>
+        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+          <span class="role-badge role-badge-participant">Participant</span>
+          <h2 style="font-size: 17px; font-weight: 600; color: #ffffff;">Participant Workspace</h2>
+        </div>
+        <p style="font-size: 13.5px; color: var(--text-secondary);">Global dashboard for your team memberships and project drafts.</p>
+      </div>
+      <div class="btn btn-secondary btn-sm">Enter &rarr;</div>
+    </a>
+
+    <!-- Event Specific Roles -->
+    {% for m in memberships %}
+      {% if m.role == 'organizer' %}
+        <a href="/organizer/events/{{ m.event_id }}/" class="panel" style="display: flex; align-items: center; justify-content: space-between; text-decoration: none; margin-bottom: 0;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+              <span class="role-badge role-badge-organizer">Organizer</span>
+              <h2 style="font-size: 17px; font-weight: 600; color: #ffffff;">{{ m.event.name }}</h2>
+            </div>
+            <p style="font-size: 13.5px; color: var(--text-secondary);">Manage event settings, assignments, eligibility, and publish results.</p>
+          </div>
+          <div class="btn btn-secondary btn-sm">Manage &rarr;</div>
+        </a>
+      {% elif m.role == 'judge' %}
+        <a href="/judge/?event={{ m.event_id }}" class="panel" style="display: flex; align-items: center; justify-content: space-between; text-decoration: none; margin-bottom: 0;">
+          <div>
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+              <span class="role-badge role-badge-judge">Judge</span>
+              <h2 style="font-size: 17px; font-weight: 600; color: #ffffff;">{{ m.event.name }}</h2>
+            </div>
+            <p style="font-size: 13.5px; color: var(--text-secondary);">Evaluate assigned project submissions and submit scores.</p>
+          </div>
+          <div class="btn btn-secondary btn-sm">Review &rarr;</div>
+        </a>
+      {% endif %}
+    {% endfor %}
+  </div>
+
+  <div style="text-align: center; margin-top: 32px;">
+    <form method="POST" action="/api/v1/auth/logout" style="display: inline-block;">
+      {% csrf_token %}
+      <button type="submit" class="btn btn-ghost btn-sm" onclick="event.preventDefault(); FairPanel.post('/api/v1/auth/logout').then(() => window.location.href='/');">Sign Out</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

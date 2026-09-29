@@ -1,0 +1,79 @@
+{% extends "fairpanel/judge/base_judge.html" %}
+{% load static %}
+
+{% block workspace_title %}Judge Settings{% endblock %}
+
+{% block workspace_content %}
+<div style="max-width: 680px; margin: 0 auto;">
+  <div style="margin-bottom: 28px;">
+    <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Judge Profile &amp; Preferences</h1>
+    <p style="color: var(--text-secondary); font-size: 14px;">
+      Manage your reviewer bio, expertise tags, and evaluation preferences.
+    </p>
+  </div>
+
+  <div class="alert alert-info">
+    <strong>Note on expertise:</strong> Expertise tags are descriptive reviewer profile fields and cannot grant track access. Track assignment scopes are managed independently by event organizers.
+  </div>
+
+  <div class="panel">
+    <form id="form-judge-settings">
+      <div class="form-group">
+        <label class="form-label" for="id_display_name">Display Name</label>
+        <input type="text" id="id_display_name" name="display_name" value="{{ settings.preferences.display_name|default:user.display_name }}" class="form-input" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="id_bio">Reviewer Bio</label>
+        <textarea id="id_bio" name="bio" class="form-textarea" placeholder="Your domain background, engineering specialties, and review philosophy...">{{ settings.preferences.bio|default:'' }}</textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="id_expertise">Expertise Tags (comma separated)</label>
+        <input type="text" id="id_expertise" name="expertise_tags" value="{{ settings.preferences.expertise_tags|join:', ' }}" class="form-input" placeholder="e.g. Distributed Systems, Security, Frontend, AI/ML">
+        <div class="form-hint">Descriptive only. Track assignments are configured by event organizers.</div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="id_timezone">Preferred Timezone</label>
+        <input type="text" id="id_timezone" name="timezone" value="{{ settings.preferences.timezone|default:'UTC' }}" class="form-input">
+      </div>
+
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
+        <button type="submit" class="btn btn-primary" id="btn-save-judge-settings">Save Preferences</button>
+        <a href="/account/security/" style="font-size: 13px; color: var(--text-muted); text-decoration: underline;">
+          Account Security &amp; Password
+        </a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  document.getElementById('form-judge-settings').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const payload = {
+      display_name: form.display_name.value.trim(),
+      bio: form.bio.value.trim(),
+      expertise_tags: form.expertise_tags.value.split(',').map(s => s.trim()).filter(Boolean),
+      timezone: form.timezone.value.trim(),
+      version: {{ settings.version }}
+    };
+
+    const btn = document.getElementById('btn-save-judge-settings');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+      await FairPanel.patch('/api/v1/settings/judge', payload);
+      FairPanel.showToast('Judge preferences updated successfully', 'success');
+      setTimeout(() => location.reload(), 800);
+    } catch (err) {
+      FairPanel.showToast(err.message || 'Failed to update preferences', 'error');
+      btn.disabled = false;
+      btn.textContent = 'Save Preferences';
+    }
+  });
+</script>
+{% endblock %}

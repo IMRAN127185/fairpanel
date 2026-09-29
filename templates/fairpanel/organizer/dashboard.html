@@ -1,0 +1,61 @@
+{% extends "fairpanel/organizer/base_organizer.html" %}
+{% load static %}
+
+{% block workspace_title %}Organizer Events{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/organizer/events/new/" class="btn btn-primary btn-sm">+ Create New Event</a>
+{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">My Managed Hackathons</h1>
+  <p style="color: var(--text-secondary); font-size: 14px;">
+    Supervise hackathon operations, judge invitations, evaluation coverage, and publication decisions.
+  </p>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px;">
+  {% for evt in events %}
+    <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0;">
+      <div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          {% if evt.is_submission_open %}
+            <span class="badge badge-active">Active (Submissions Open)</span>
+          {% elif evt.status == 'published' %}
+            <span class="badge badge-published">Results Published</span>
+          {% else %}
+            <span class="badge badge-closed">Submissions Closed</span>
+          {% endif %}
+          <span style="font-size: 12px; color: var(--text-muted);">{{ evt.timezone }}</span>
+        </div>
+
+        <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 8px;">
+          <a href="/organizer/events/{{ evt.id }}/" style="color: #ffffff; text-decoration: none;">{{ evt.name }}</a>
+        </h2>
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 16px;">
+          {{ evt.description|truncatewords:20 }}
+        </p>
+      </div>
+
+      <div>
+        <div style="display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); border-top: 1px solid var(--border-subtle); padding: 12px 0 16px;">
+          <span>Submissions: <strong>{{ evt.projects.count }}</strong></span>
+          <span>Judges: <strong>{{ evt.memberships.count }}</strong></span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <a href="/organizer/events/{{ evt.id }}/" class="btn btn-secondary btn-sm" style="flex: 1;">Overview</a>
+          <a href="/organizer/events/{{ evt.id }}/submissions/" class="btn btn-secondary btn-sm">Submissions</a>
+          <a href="/organizer/events/{{ evt.id }}/results/" class="btn btn-primary btn-sm">Results</a>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="panel" style="grid-column: 1 / -1; text-align: center; padding: 48px 20px;">
+      <h3 style="font-size: 18px; margin-bottom: 8px;">No events created yet</h3>
+      <p style="color: var(--text-secondary); margin-bottom: 20px;">Create your first hackathon to start accepting submissions.</p>
+      <a href="/organizer/events/new/" class="btn btn-primary">Create Event</a>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

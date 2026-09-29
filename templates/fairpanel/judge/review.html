@@ -1,0 +1,162 @@
+{% extends "fairpanel/judge/base_judge.html" %}
+{% load static %}
+{% load fairpanel_tags %}
+
+{% block workspace_title %}Review: {{ project.title }}{% endblock %}
+
+{% block workspace_content %}
+<div class="judge-review-container" 
+     data-project-id="{{ project.id }}" 
+     data-assignment-id="{{ assignment.id }}"
+     data-review-version="{{ review.version|default:'1' }}"
+     {% if next_assignment %}data-next-project-url="/judge/projects/{{ next_assignment.project_id }}/"{% endif %}>
+
+  <!-- Column 1: Review Queue (~230px) -->
+  <div class="judge-queue-column">
+    <div class="judge-column-header">
+      <span style="font-weight: 600; font-size: 13.5px;">Queue ({{ queue|length }})</span>
+      <a href="/judge/" style="font-size: 12px; color: var(--text-muted); text-decoration: underline;">Exit</a>
+    </div>
+    <div class="judge-queue-list">
+      {% for item in queue %}
+        <a href="/judge/projects/{{ item.project_id }}/" class="judge-queue-item {% if item.project_id == project.id %}active{% endif %}">
+          <div style="font-size: 13px; font-weight: 600; color: #ffffff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            {{ item.project.title }}
+          </div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 6px;">
+            <span style="font-size: 11px; color: var(--text-muted);">
+              {% if item.project.track %}{{ item.project.track.name|truncatechars:12 }}{% else %}General{% endif %}
+            </span>
+            {% if item.review and item.review.status == 'submitted' %}
+              <span style="font-size: 11px; color: #34d399;">✓ Scored</span>
+            {% elif item.review and item.review.status == 'draft' %}
+              <span style="font-size: 11px; color: #fbbf24;">Draft</span>
+            {% else %}
+              <span style="font-size: 11px; color: var(--text-muted);">Pending</span>
+            {% endif %}
+          </div>
+        </a>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Column 2: Project Details (Flexible) -->
+  <div class="judge-project-column">
+    <div class="judge-column-header">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="badge badge-neutral">{{ project.track.name|default:"General Track" }}</span>
+        <span style="font-size: 13px; color: var(--text-muted);">Team: {{ project.team.name }}</span>
+      </div>
+      <button id="btn-report-conflict" class="btn btn-ghost btn-sm" style="color: #fca5a5; font-size: 12px;">
+        Report Conflict of Interest
+      </button>
+    </div>
+
+    <div class="judge-project-scroll">
+      <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 8px;">{{ project.title }}</h1>
+      {% if project.tagline %}
+        <p style="font-size: 15px; color: var(--text-secondary); margin-bottom: 20px;">{{ project.tagline }}</p>
+      {% endif %}
+
+      <!-- Links -->
+      <div style="display: flex; gap: 10px; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border-subtle); flex-wrap: wrap;">
+        {% if project.repo_url %}
+          <a href="{{ project.repo_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+            Source Code &rarr;
+          </a>
+        {% endif %}
+        {% if project.live_url %}
+          <a href="{{ project.live_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+            Live Demo &rarr;
+          </a>
+        {% endif %}
+        {% if project.video_url %}
+          <a href="{{ project.video_url }}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">
+            Video &rarr;
+          </a>
+        {% endif %}
+      </div>
+
+      <!-- Description -->
+      <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 10px; color: #ffffff;">Project Description</h3>
+        <div style="font-size: 14px; line-height: 1.6; color: #d4d4d8; white-space: pre-wrap;">{{ project.description|default:"No description provided." }}</div>
+      </div>
+
+      <!-- Tech tags -->
+      {% if project.tech_tags %}
+        <div>
+          <h3 style="font-size: 15px; font-weight: 600; margin-bottom: 10px; color: #ffffff;">Tech Stack</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            {% for tag in project.tech_tags %}
+              <span class="badge badge-neutral" style="font-size: 12px;">{{ tag }}</span>
+            {% endfor %}
+          </div>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Column 3: Rubric & Scoring (~360px) -->
+  <div class="judge-rubric-column">
+    <div class="judge-column-header">
+      <span style="font-weight: 600; font-size: 14px;">Evaluation Rubric</span>
+      {% if review and review.status == 'submitted' %}
+        <span class="badge badge-completed">Submitted</span>
+      {% else %}
+        <span class="badge badge-pending">Drafting</span>
+      {% endif %}
+    </div>
+
+    <div class="judge-rubric-scroll">
+      <!-- Criteria scoring cards -->
+      {% for crit in criteria %}
+        <div class="rubric-criterion-card" data-criterion-key="{{ crit.key }}">
+          <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px;">
+            <strong style="font-size: 14px; color: #ffffff;">{{ crit.name }}</strong>
+            <span style="font-size: 11px; color: var(--text-muted);">Weight: {{ crit.weight }}</span>
+          </div>
+          {% if crit.description %}
+            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px;">{{ crit.description }}</p>
+          {% endif %}
+
+          <!-- Numeric controls (1 to 5) -->
+          <div class="score-stepper">
+            {% for val in "12345"|make_list %}
+              <button type="button" 
+                      class="score-btn {% if review and review.criteria_scores|dict_key:crit.key == val %}selected{% endif %}" 
+                      data-score="{{ val }}"
+                      aria-label="Score {{ val }} for {{ crit.name }}">
+                {{ val }}
+              </button>
+            {% endfor %}
+          </div>
+        </div>
+      {% endfor %}
+
+      <!-- Written Feedback -->
+      <div class="form-group" style="margin-bottom: 0;">
+        <label class="form-label" for="review-comment">Constructive Feedback / Notes</label>
+        <textarea id="review-comment" class="form-textarea" placeholder="Specific technical highlights, critique, and feedback...">{{ review.comment|default:'' }}</textarea>
+      </div>
+
+      <!-- Action Buttons -->
+      <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 10px;">
+        <button type="button" class="btn btn-primary" id="btn-judge-submit-review">
+          Submit Review Score
+        </button>
+        <button type="button" class="btn btn-secondary" id="btn-judge-save-draft">
+          Save Draft
+        </button>
+        {% if next_assignment %}
+          <a href="/judge/projects/{{ next_assignment.project_id }}/" class="btn btn-ghost btn-sm" style="text-align: center;">
+            Skip to Next Project &rarr;
+          </a>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'fairpanel/js/judging.js' %}"></script>
+{% endblock %}

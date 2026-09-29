@@ -1,0 +1,42 @@
+{% extends "fairpanel/base.html" %}
+{% load static %}
+
+{% block title %}Judge Invitation — FairPanel{% endblock %}
+
+{% block content %}
+<div style="min-height: calc(100vh - 64px); display: flex; align-items: center; justify-content: center; padding: 40px 20px;">
+  <div style="width: 100%; max-width: 480px; text-align: center;">
+    {% if invalid %}
+      <div class="panel">
+        <div style="font-size: 40px; margin-bottom: 12px;">⚠️</div>
+        <h1 style="font-size: 22px; font-weight: 700; margin-bottom: 8px;">Invalid Judge Invitation</h1>
+        <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 24px;">
+          This judge invitation link is invalid, already used, or expired.
+        </p>
+        <a href="/" class="btn btn-secondary">Go to Home</a>
+      </div>
+    {% else %}
+      <div class="panel">
+        <div style="font-size: 40px; margin-bottom: 12px;">⚖️</div>
+        <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">Judge Invitation</h1>
+        <p style="color: var(--text-secondary); font-size: 14.5px; margin-bottom: 20px;">
+          You have been invited to judge submissions for <strong>{{ event.name }}</strong>.
+        </p>
+
+        <div style="background: var(--surface-1); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); margin-bottom: 24px; text-align: left; font-size: 13.5px;">
+          <div style="margin-bottom: 6px;">Event: <strong>{{ event.name }}</strong></div>
+          <div style="margin-bottom: 6px;">Organizer: <strong>{{ event.owner.display_name }}</strong></div>
+          <div>Judging Dates: <strong>{{ event.judging_open|date:"M j"|default:"Open" }} — {{ event.judging_close|date:"M j, Y"|default:"TBD" }} UTC</strong></div>
+        </div>
+
+        <form method="POST">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-primary" style="width: 100%;">
+            Accept Judge Invitation
+          </button>
+        </form>
+      </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,181 @@
+{% extends "fairpanel/participant/base_participant.html" %}
+{% load static %}
+
+{% block workspace_title %}Submission — {{ event.name }}{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 24px;">
+  <a href="/participant/" style="font-size: 13px; color: var(--text-secondary);">&larr; Back to Dashboard</a>
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 8px;">
+    <div>
+      <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Project Submission</h1>
+      <p style="color: var(--text-secondary); font-size: 14px;">
+        Team: <strong>{{ team.name }}</strong> &bull; Event: <strong>{{ event.name }}</strong>
+      </p>
+    </div>
+    {% if not is_open %}
+      <span class="badge badge-closed" style="font-size: 13px;">Editing Locked: Submissions Closed</span>
+    {% elif project and project.status == 'submitted' %}
+      <span class="badge badge-active" style="font-size: 13px;">Submitted (Editable before deadline)</span>
+    {% else %}
+      <span class="badge badge-pending" style="font-size: 13px;">Draft in Progress</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if not is_open %}
+  <div class="alert alert-error">
+    <strong>Deadline passed:</strong> The submission deadline for this event closed on {{ event.submissions_close|date:"M j, Y H:i" }} UTC. The server has locked this submission against further modifications.
+  </div>
+{% endif %}
+
+<div id="submission-wizard" data-event-id="{{ event.id }}" data-project-id="{{ project.id|default:'' }}" data-project-version="{{ project.version|default:'1' }}">
+  <!-- 4 Step Tabs -->
+  <div class="wizard-steps">
+    <div class="wizard-step active" data-step="0">1. Basics</div>
+    <div class="wizard-step" data-step="1">2. Details &amp; Questions</div>
+    <div class="wizard-step" data-step="2">3. Links &amp; Media</div>
+    <div class="wizard-step" data-step="3">4. Review &amp; Submit</div>
+  </div>
+
+  <form id="submission-form" onsubmit="return false;">
+    <!-- Step 1: Basics -->
+    <div class="step-panel" id="step-basics">
+      <div class="panel">
+        <h2 class="panel-title" style="margin-bottom: 16px;">Core Project Information</h2>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-title">Project Title *</label>
+          <input type="text" id="proj-title" name="title" value="{{ project.title|default:'' }}" class="form-input" required placeholder="Name of your project or software" {% if not is_open %}disabled{% endif %}>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-tagline">One-line Tagline</label>
+          <input type="text" id="proj-tagline" name="tagline" value="{{ project.tagline|default:'' }}" class="form-input" placeholder="A concise summary of what your project does" {% if not is_open %}disabled{% endif %}>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-track">Track Selection</label>
+          <select id="proj-track" name="track_id" class="form-select" {% if not is_open %}disabled{% endif %}>
+            <option value="">No specific track (General)</option>
+            {% for trk in tracks %}
+              <option value="{{ trk.id }}" {% if project.track_id == trk.id %}selected{% endif %}>{{ trk.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2: Details -->
+    <div class="step-panel" id="step-details" style="display: none;">
+      <div class="panel">
+        <h2 class="panel-title" style="margin-bottom: 16px;">Detailed Overview</h2>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-desc">Detailed Description</label>
+          <textarea id="proj-desc" name="description" class="form-textarea" placeholder="Explain the problem, technical architecture, and impact..." {% if not is_open %}disabled{% endif %}>{{ project.description|default:'' }}</textarea>
+        </div>
+
+        {% if questions %}
+          <div style="border-top: 1px solid var(--border-subtle); padding-top: 20px; margin-top: 20px;">
+            <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 14px;">Organizer Custom Questions</h3>
+            {% for qst in questions %}
+              <div class="form-group">
+                <label class="form-label">{{ qst.label }}{% if qst.required %} *{% endif %}</label>
+                {% if qst.type == 'select' %}
+                  <select class="form-select" data-custom-key="{{ qst.key }}" {% if not is_open %}disabled{% endif %}>
+                    <option value="">Select option</option>
+                    {% for choice in qst.choices %}
+                      <option value="{{ choice }}">{{ choice }}</option>
+                    {% endfor %}
+                  </select>
+                {% elif qst.type == 'textarea' %}
+                  <textarea class="form-textarea" data-custom-key="{{ qst.key }}" {% if not is_open %}disabled{% endif %}></textarea>
+                {% else %}
+                  <input type="text" class="form-input" data-custom-key="{{ qst.key }}" {% if not is_open %}disabled{% endif %}>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Step 3: Links and Media -->
+    <div class="step-panel" id="step-links" style="display: none;">
+      <div class="panel">
+        <h2 class="panel-title" style="margin-bottom: 16px;">Repository &amp; Media Links</h2>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-repo">Source Code Repository URL</label>
+          <input type="url" id="proj-repo" name="repo_url" value="{{ project.repo_url|default:'' }}" class="form-input" placeholder="https://github.com/..." {% if not is_open %}disabled{% endif %}>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-live">Live Demo Application URL</label>
+          <input type="url" id="proj-live" name="live_url" value="{{ project.live_url|default:'' }}" class="form-input" placeholder="https://..." {% if not is_open %}disabled{% endif %}>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-video">Demo Video URL</label>
+          <input type="url" id="proj-video" name="video_url" value="{{ project.video_url|default:'' }}" class="form-input" placeholder="https://youtube.com/..." {% if not is_open %}disabled{% endif %}>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="proj-tags">Tech Stack Tags (Comma separated)</label>
+          <input type="text" id="proj-tags" name="tech_tags" value="{{ project.tech_tags|join:', ' }}" class="form-input" placeholder="Python, Django, SQLite, CSS" {% if not is_open %}disabled{% endif %}>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 4: Review -->
+    <div class="step-panel" id="step-review" style="display: none;">
+      <div class="panel">
+        <h2 class="panel-title" style="margin-bottom: 16px;">Review Submission Summary</h2>
+        <div style="background: var(--surface-1); padding: 20px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 14px; margin-bottom: 24px;">
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Title</div>
+            <div id="rev-title" style="font-size: 18px; font-weight: 700; color: #ffffff;"></div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Tagline</div>
+            <div id="rev-tagline" style="font-size: 14px; color: var(--text-secondary);"></div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Description Preview</div>
+            <div id="rev-desc" style="font-size: 14px; color: #d4d4d8; max-height: 100px; overflow-y: auto; white-space: pre-wrap;"></div>
+          </div>
+          <div style="display: flex; gap: 24px;">
+            <div>
+              <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Repository</div>
+              <div id="rev-repo" style="font-size: 13px; color: #93c5fd;"></div>
+            </div>
+            <div>
+              <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Live URL</div>
+              <div id="rev-live" style="font-size: 13px; color: #93c5fd;"></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size: 13px; color: var(--text-muted); line-height: 1.5;">
+          Submitting marks your project as ready for judging. You can continue updating your submission until the deadline.
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <!-- Step Actions -->
+  <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 24px;">
+    <button type="button" class="btn btn-secondary" id="wizard-prev" style="display: none;">&larr; Previous Step</button>
+    <div style="display: flex; gap: 12px; margin-left: auto;">
+      {% if is_open %}
+        <button type="button" class="btn btn-secondary" id="btn-save-draft">Save Draft</button>
+        <button type="button" class="btn btn-secondary" id="wizard-next">Next Step &rarr;</button>
+        <button type="button" class="btn btn-primary" id="btn-submit-project">Submit Project</button>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'fairpanel/js/submission.js' %}"></script>
+{% endblock %}

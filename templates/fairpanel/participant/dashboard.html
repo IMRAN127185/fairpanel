@@ -1,0 +1,140 @@
+{% extends "fairpanel/participant/base_participant.html" %}
+{% load static %}
+
+{% block workspace_title %}My Events &amp; Submissions{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 6px;">Participant Dashboard</h1>
+  <p style="color: var(--text-secondary); font-size: 14px;">
+    Track your registered hackathons, manage team collaboration, and monitor submission deadlines.
+  </p>
+</div>
+
+<!-- Registered Events -->
+<div style="display: flex; flex-direction: column; gap: 20px; margin-bottom: 40px;">
+  {% for item in events_data %}
+    <div class="panel" style="margin-bottom: 0;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+            <h2 style="font-size: 20px; font-weight: 600; color: #ffffff;">{{ item.event.name }}</h2>
+            {% if item.is_open %}
+              <span class="badge badge-active">Submissions Open</span>
+            {% elif item.event.status == 'published' %}
+              <span class="badge badge-published">Results Published</span>
+            {% else %}
+              <span class="badge badge-closed">Closed</span>
+            {% endif %}
+          </div>
+          <div style="font-size: 13px; color: var(--text-muted);">
+            Deadline: <strong title="{{ item.event.submissions_close|date:'Y-m-d H:i:s' }} UTC">{{ item.event.submissions_close|date:"M j, Y H:i"|default:"TBD" }} UTC</strong>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px;">
+          {% if item.team %}
+            <a href="/participant/events/{{ item.event.id }}/team/" class="btn btn-secondary btn-sm">Team: {{ item.team.name }}</a>
+          {% else %}
+            <a href="/participant/events/{{ item.event.id }}/team/" class="btn btn-primary btn-sm">Form / Join Team</a>
+          {% endif %}
+
+          {% if item.project %}
+            <a href="/participant/events/{{ item.event.id }}/submission/" class="btn btn-primary btn-sm">
+              {% if item.project.status == 'submitted' %}View Submission{% else %}Edit Draft{% endif %}
+            </a>
+          {% elif item.team %}
+            <a href="/participant/events/{{ item.event.id }}/submission/" class="btn btn-primary btn-sm">Start Submission</a>
+          {% endif %}
+
+          {% if item.event.status == 'published' %}
+            <a href="/events/{{ item.event.id }}/results/" class="btn btn-secondary btn-sm">View Standings</a>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Status Cards -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; background: var(--surface-1); padding: 16px; border-radius: var(--radius-md); border: 1px solid var(--border-subtle);">
+        <div>
+          <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Team Status</div>
+          <div style="font-size: 14px; font-weight: 600; color: #ffffff; margin-top: 4px;">
+            {% if item.team %}
+              {{ item.team.name }} ({{ item.team.member_count }}/{{ item.event.team_capacity }} members)
+            {% else %}
+              <span style="color: var(--warning);">No team yet</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Project State</div>
+          <div style="font-size: 14px; font-weight: 600; color: #ffffff; margin-top: 4px;">
+            {% if item.project %}
+              {{ item.project.title }} ({{ item.project.status|capfirst }})
+            {% else %}
+              <span style="color: var(--text-muted);">Not started</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Next Recommended Action</div>
+          <div style="font-size: 14px; font-weight: 600; color: #6ee7b7; margin-top: 4px;">
+            {% if not item.team %}
+              Create or join a team
+            {% elif not item.project %}
+              Draft your project submission
+            {% elif item.project.status == 'draft' %}
+              Complete and submit project
+            {% elif item.event.status == 'published' %}
+              Check published awards &amp; scores
+            {% else %}
+              Awaiting judging evaluation
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+  {% empty %}
+    <div class="panel" style="text-align: center; padding: 48px 20px;">
+      <h3 style="font-size: 18px; margin-bottom: 8px;">You haven't joined any hackathons yet</h3>
+      <p style="color: var(--text-secondary); margin-bottom: 20px;">Browse available open events and join to begin hacking.</p>
+    </div>
+  {% endfor %}
+</div>
+
+<!-- Open Hackathons to Join -->
+{% if available_events %}
+  <div>
+    <h2 style="font-size: 20px; font-weight: 600; margin-bottom: 16px;">Available Hackathons</h2>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
+      {% for evt in available_events %}
+        <div class="panel" style="display: flex; flex-direction: column; justify-content: space-between; margin-bottom: 0;">
+          <div>
+            <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 6px;">{{ evt.name }}</h3>
+            <p style="font-size: 13.5px; color: var(--text-secondary); margin-bottom: 14px;">{{ evt.description|truncatewords:16 }}</p>
+          </div>
+          <button class="btn btn-secondary btn-sm btn-join" data-event-id="{{ evt.id }}">Join Hackathon</button>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+{% endif %}
+
+<script>
+  document.querySelectorAll('.btn-join').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const eventId = btn.dataset.eventId;
+      btn.disabled = true;
+      try {
+        await FairPanel.post(`/api/v1/events/${eventId}/join`, {});
+        FairPanel.showToast('Joined event successfully!', 'success');
+        setTimeout(() => location.reload(), 800);
+      } catch (err) {
+        FairPanel.showToast(err.message || 'Failed to join', 'error');
+        btn.disabled = false;
+      }
+    });
+  });
+</script>
+{% endblock %}

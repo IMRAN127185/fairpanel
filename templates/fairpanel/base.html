@@ -1,0 +1,42 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}FairPanel — Every Project Deserves a Fair Review{% endblock %}</title>
+  <meta name="description" content="Open-source, self-hosted hackathon submission and judging portal with private reviews and transparent scoring.">
+  <meta name="theme-color" content="#000000">
+
+  <!-- Core Stylesheets -->
+  <link rel="stylesheet" href="{% static 'fairpanel/css/main.css' %}">
+  {% block extra_css %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a href="#main-content" class="skip-link">Skip to main content</a>
+
+  {% block body %}
+    {% block navbar %}{% endblock %}
+    
+    <main id="main-content">
+      {% if messages %}
+        <div style="max-width: 1200px; margin: 16px auto; padding: 0 16px;">
+          {% for message in messages %}
+            <div class="alert alert-{{ message.tags }}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </main>
+
+    {% block footer %}{% endblock %}
+  {% endblock body %}
+
+  <!-- Core API client -->
+  <script src="{% static 'fairpanel/js/api.js' %}"></script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

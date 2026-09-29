@@ -1,0 +1,161 @@
+{% extends "fairpanel/organizer/base_organizer.html" %}
+{% load static %}
+
+{% block workspace_title %}Results Review — {{ event.name }}{% endblock %}
+
+{% block topbar_actions %}
+  <a href="/api/v1/events/{{ event.id }}/exports/results.csv" class="btn btn-secondary btn-sm">Export Results CSV</a>
+{% endblock %}
+
+{% block workspace_content %}
+<div style="margin-bottom: 28px;">
+  <div style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px;">
+    <div>
+      <h1 style="font-size: 26px; font-weight: 700; margin-bottom: 4px;">Results Review &amp; Publication</h1>
+      <p style="color: var(--text-secondary); font-size: 14px;">
+        Compare raw versus normalized scores (<code>overlap_bias_v1</code>), review coverage warnings, and publish official frozen snapshots.
+      </p>
+    </div>
+
+    {% if snapshot %}
+      <div style="text-align: right;">
+        <span class="badge badge-published" style="font-size: 13px; padding: 6px 14px;">
+          Published Rev {{ snapshot.revision }} ({{ snapshot.get_ranking_method_display }})
+        </span>
+        <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+          Published: {{ snapshot.published_at|date:"M j, Y H:i" }} UTC
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Normalization Diagnostic & Publication Controls -->
+<div class="panel" style="background: var(--surface-2);">
+  <div class="panel-header">
+    <div>
+      <h2 class="panel-title">Publication Decision &amp; Normalization Status</h2>
+      <p style="font-size: 13px; color: var(--text-muted); margin-top: 4px;">
+        Evaluation graph: 
+        {% if preview.is_graph_connected %}
+          <span style="color: #34d399; font-weight: 600;">Connected Component ✓</span>
+        {% else %}
+          <span style="color: #f87171; font-weight: 600;">Disconnected Graph Warning ⚠️</span>
+        {% endif %}
+        &bull; Total Reviews: <strong>{{ review_count }}</strong>
+      </p>
+    </div>
+
+    <div style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+      <div style="display: flex; gap: 12px; font-size: 14px;">
+        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="radio" name="ranking_method" value="raw" checked> Raw Mean
+        </label>
+        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="radio" name="ranking_method" value="adjusted"> Adjusted (overlap_bias_v1)
+        </label>
+      </div>
+
+      <button id="btn-publish-results" 
+              class="btn btn-primary btn-sm" 
+              data-event-id="{{ event.id }}" 
+              data-preview-version="{{ preview.projects|length }}_{{ review_count }}">
+        Publish Results Snapshot
+      </button>
+    </div>
+  </div>
+
+  <!-- Warnings List if any -->
+  {% if preview.pool_warnings %}
+    <div style="margin-top: 12px;">
+      {% for w in preview.pool_warnings %}
+        <div class="alert alert-error" style="margin-bottom: 8px; font-size: 13px;">{{ w }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>
+
+<!-- Live Standings Table (Raw vs Adjusted Comparison) -->
+<div class="panel">
+  <div class="panel-header">
+    <h2 class="panel-title">Computed Standings Preview ({{ preview.projects|length }} Projects)</h2>
+  </div>
+
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Raw Rank</th>
+          <th>Adjusted Rank</th>
+          <th>Project Title</th>
+          <th style="text-align: right;">Raw Score (0-100)</th>
+          <th style="text-align: right;">Adjusted Score</th>
+          <th style="text-align: right;">Reviews</th>
+          <th>Normalization</th>
+          <th>Warnings</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in preview.projects %}
+          <tr>
+            <td style="font-weight: 700; font-size: 15px;">
+              #{{ p.raw_rank }}
+              {% if p.tied %}<span style="font-size: 10px; color: var(--text-muted);">(Tied)</span>{% endif %}
+            </td>
+            <td style="font-weight: 700; font-size: 15px; color: #93c5fd;">
+              {% if p.adjusted_rank %}#{{ p.adjusted_rank }}{% else %}—{% endif %}
+            </td>
+            <td>
+              <div style="font-weight: 600; color: #ffffff;">
+                <a href="/projects/{{ p.project_id }}/" target="_blank" style="color: inherit; text-decoration: none;">
+                  {{ p.title }}
+                </a>
+              </div>
+              <div style="font-size: 11px; font-family: monospace; color: var(--text-muted);">{{ p.project_id }}</div>
+            </td>
+            <td style="text-align: right; font-weight: 600; font-variant-numeric: tabular-nums;">
+              {{ p.raw_score|floatformat:2 }}
+            </td>
+            <td style="text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: #93c5fd;">
+              {% if p.adjusted_score is not None %}
+                {{ p.adjusted_score|floatformat:2 }}
+              {% else %}
+                <span style="color: var(--text-muted);">—</span>
+              {% endif %}
+            </td>
+            <td style="text-align: right; font-variant-numeric: tabular-nums;">
+              {{ p.review_count }}
+            </td>
+            <td>
+              {% if p.normalization_status == 'calibrated' %}
+                <span class="badge badge-active">Calibrated</span>
+              {% elif p.normalization_status == 'mixed' %}
+                <span class="badge badge-pending">Mixed</span>
+              {% elif p.normalization_status == 'uncalibrated' %}
+                <span class="badge badge-neutral">Uncalibrated</span>
+              {% else %}
+                <span class="badge badge-conflict">Unreviewed</span>
+              {% endif %}
+            </td>
+            <td style="font-size: 12px; color: #fca5a5;">
+              {% for w in p.warnings %}
+                <div>&bull; {{ w }}</div>
+              {% empty %}
+                <span style="color: var(--text-muted);">None</span>
+              {% endfor %}
+            </td>
+          </tr>
+        {% empty %}
+          <tr>
+            <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 32px;">
+              No project evaluations calculated.
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="{% static 'fairpanel/js/organizer.js' %}"></script>
+{% endblock %}

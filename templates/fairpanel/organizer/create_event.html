@@ -1,0 +1,45 @@
+{% extends "fairpanel/organizer/base_organizer.html" %}
+{% load static %}
+
+{% block workspace_title %}Create Hackathon{% endblock %}
+
+{% block workspace_content %}
+<div style="max-width: 680px; margin: 0 auto;">
+  <div style="margin-bottom: 24px;">
+    <a href="/organizer/" style="font-size: 13px; color: var(--text-secondary);">&larr; Back to My Events</a>
+    <h1 style="font-size: 26px; font-weight: 700; margin-top: 8px;">Create New Hackathon Event</h1>
+    <p style="color: var(--text-secondary); font-size: 14px;">Set up initial event parameters and configuration.</p>
+  </div>
+
+  <div class="panel">
+    <form method="POST">
+      {% csrf_token %}
+      <div class="form-group">
+        <label class="form-label" for="event-name">Event Name *</label>
+        <input type="text" id="event-name" name="name" class="form-input" required placeholder="e.g. AI Innovation Sprint 2026">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="event-desc">Event Description</label>
+        <textarea id="event-desc" name="description" class="form-textarea" placeholder="Describe the hackathon theme, rules, and objectives..."></textarea>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+        <div class="form-group">
+          <label class="form-label" for="event-tz">Timezone</label>
+          <input type="text" id="event-tz" name="timezone" value="UTC" class="form-input">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="event-capacity">Max Members per Team</label>
+          <input type="number" id="event-capacity" name="team_capacity" value="4" min="1" max="20" class="form-input">
+        </div>
+      </div>
+
+      <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button type="submit" class="btn btn-primary">Create Hackathon</button>
+        <a href="/organizer/" class="btn btn-secondary">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,65 @@
+{% extends "fairpanel/base.html" %}
+{% load static %}
+
+{% block title %}Create Account — FairPanel{% endblock %}
+
+{% block content %}
+<div style="min-height: calc(100vh - 64px); display: flex; align-items: center; justify-content: center; padding: 40px 20px;">
+  <div style="width: 100%; max-width: 420px;">
+    <div style="text-align: center; margin-bottom: 28px;">
+      <a href="/" style="display: inline-block; margin-bottom: 16px;">
+        <svg viewBox="0 0 100 100" fill="none" style="width: 42px; height: 42px;">
+          <circle cx="50" cy="50" r="48" fill="#ffffff" />
+          <g transform="translate(14, 14) scale(0.72)">
+            <path d="M50 18 L50 78" stroke="#121214" stroke-width="6" stroke-linecap="round" />
+            <path d="M22 34 L78 34" stroke="#121214" stroke-width="5" stroke-linecap="round" />
+            <circle cx="50" cy="18" r="5" fill="#121214" />
+            <path d="M22 34 L12 56 L32 56 Z" fill="#121214" />
+            <path d="M78 34 L68 56 L88 56 Z" fill="#121214" />
+            <path d="M34 78 L66 78" stroke="#121214" stroke-width="6" stroke-linecap="round" />
+          </g>
+        </svg>
+      </a>
+      <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 6px;">Create Your Account</h1>
+      <p style="color: var(--text-secondary); font-size: 14px;">
+        Join hackathons, form teams, and submit your innovations on FairPanel.
+      </p>
+    </div>
+
+    {% if error %}
+      <div class="alert alert-error" style="margin-bottom: 20px;">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    <div class="panel">
+      <form method="POST">
+        {% csrf_token %}
+        <div class="form-group">
+          <label class="form-label" for="id_display_name">Your Name / Handle</label>
+          <input type="text" id="id_display_name" name="display_name" class="form-input" required placeholder="e.g. Alex Rivera">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="id_email">Email Address</label>
+          <input type="email" id="id_email" name="email" class="form-input" required placeholder="name@example.com">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="id_password">Password</label>
+          <input type="password" id="id_password" name="password" class="form-input" required minlength="8" placeholder="At least 8 characters">
+          <div class="form-hint">Must be at least 8 characters long.</div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">
+          Create Account
+        </button>
+      </form>
+    </div>
+
+    <div style="text-align: center; margin-top: 24px; font-size: 13.5px; color: var(--text-muted);">
+      Already have an account? <a href="/login/" style="color: #ffffff; text-decoration: underline;">Sign in</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
