@@ -25,6 +25,8 @@ python manage.py runserver 127.0.0.1:8080
 
 The local settings use a development-only secret. Set `DJANGO_SECRET_KEY`, `DJANGO_DEBUG=False`, `DJANGO_ALLOWED_HOSTS`, and a suitable server/static-file setup before any network-facing deployment. The bundled Docker command runs Django's development server and is intended for local evaluation.
 
+For a temporary external demo through an HTTPS tunnel, include the tunnel hostname in `DJANGO_ALLOWED_HOSTS` and its full `https://` origin in `DJANGO_CSRF_TRUSTED_ORIGINS`. The latter is required for browser form submissions such as login. Keep these values scoped to the exact temporary hostname. A quick tunnel depends on the local Docker container, tunnel process, and computer remaining online; use persistent hosting for a durable judge link.
+
 ## Demo accounts
 
 The seed command prints signed bearer headers for the official checker. They expire after 12 hours; run the seed command again to refresh `.dogfood.toml`. Browser users still use Django sessions and CSRF. Demo passwords are `DemoPassword2026!` for these accounts:
