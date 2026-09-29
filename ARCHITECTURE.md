@@ -32,6 +32,6 @@ The organizer result preview computes a SHA-256 fingerprint from relevant event,
 
 ## Runtime and limits
 
-The Docker image installs dependencies at build time. Startup migrates and seeds locally; it does not need a hosted database or API. The background video uses a remote URL when online and has a static visual fallback. A truly disconnected first installation needs preloaded Docker images. Docker was unavailable during this handoff, so its startup path is documented but unverified here.
+The Docker image installs dependencies at build time. Startup migrates and seeds locally; it does not need a hosted database or API. The background video uses a remote URL when online and has a static visual fallback. A truly disconnected first installation needs preloaded Docker images. Fresh-volume startup and a restart were verified with Docker Compose on Windows Docker Desktop; the official HTTP checker passed against that container.
 
 The bundled Compose command uses Django's development server on localhost. SQLite is suitable for the local evaluation baseline; concurrent writes and multi-instance deployment would need separate engineering and testing. The current upload handler and invitations should be reviewed before internet-facing deployment. See [README.md](README.md) for run commands and test evidence.

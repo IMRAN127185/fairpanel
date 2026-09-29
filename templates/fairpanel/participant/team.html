@@ -90,7 +90,7 @@
     if (formTeam) {
       formTeam.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const name = formTeam.name.value.trim();
+          const name = formTeam.elements.namedItem('name').value.trim();
         if (!name) return;
 
         try {

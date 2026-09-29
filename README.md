@@ -12,7 +12,7 @@ docker compose up --build
 
 Open <http://localhost:8080>. The container migrates an SQLite database and imports the bundled fixture event and a separate open demo event. Database, uploads, and the generated Django secret persist in Docker volumes. The Compose port is bound to `127.0.0.1`. The background video is an optional remote enhancement; the portal remains usable without it. Image building may need network access to fetch Python and packages. A fully disconnected first install needs preloaded images.
 
-Docker is not available in the development environment used for this handoff, so the container startup path has not been independently verified here. The local Python path below and the HTTP checker have been exercised.
+Docker Compose was verified from a fresh named volume on Windows Docker Desktop: the image built, all migrations applied, the bundled fixture seeded, and the HTTP checker passed all seven checks. A container restart preserved two events and 41 projects. The Compose service uses Django's development server for local evaluation; it is not a production deployment.
 
 For local Python development:
 
@@ -66,7 +66,11 @@ With the server running, run the bundled official checker and save its output:
 python spec/run.py .dogfood.toml --fixtures fixtures.json > acceptance-report.txt
 ```
 
-The [committed acceptance report](acceptance-report.txt) records seven passing checks. The seed command generates the ignored `.dogfood.toml` file needed by this checker; rerun it when its signed headers expire. The checker tests a small set of public gallery, deadline, judge-isolation, and CSV behaviors. It does not verify every T1/T2 requirement or T3/T4, so the tier claim is limited to what the report and code support. The Python checker may exit with code zero even when individual checks fail; inspect its PASS/FAIL lines.
+The [committed acceptance report](acceptance-report.txt) records seven passing checks, including a run against the Docker container. The seed command generates the ignored `.dogfood.toml` file needed by this checker; rerun it when its signed headers expire. For the Docker run, copy the generated file from the container with `docker cp fairpanel_web:/app/.dogfood.toml .dogfood.toml`. The checker tests a small set of public gallery, deadline, judge-isolation, and CSV behaviors. It does not verify every T1/T2 requirement or T3/T4, so the tier claim is limited to what the report and code support. The Python checker may exit with code zero even when individual checks fail; inspect its PASS/FAIL lines.
+
+## Demo walkthrough
+
+The [five-minute narrated video](demo/fairpanel-demo.mp4) was recorded from the running Docker app at 1280×720. The matching [script and timecodes](demo/DEMO-SCRIPT.md) cover the public gallery, participant team and submission flow, private judge reviews, organizer assignments, and the results preview. The video is a screen-based walkthrough with synthesized narration; it does not claim a live human presentation. To regenerate it on Windows, install the optional `playwright`, `Pillow`, and `imageio-ffmpeg` Python packages, start the seeded portal on port 8080, and run `python demo/record_demo.py`. The recorder uses installed Chrome and Windows speech voices; these are recording tools, not application runtime dependencies.
 
 ## Data and documentation
 
@@ -75,4 +79,4 @@ The [committed acceptance report](acceptance-report.txt) records seven passing c
 - [JUDGING.md](JUDGING.md): assignments, scoring, adjustment, and limitations.
 - `fixtures.json` and `spec/`: the supplied synthetic data and acceptance checker.
 
-Current limitations: no T3 voting/comments, no T4 webhooks/certificates/embeds, no email delivery for invitations, and no recorded five-minute demo video. Invite links can be copied in the UI. Docker startup and a fully disconnected image build remain unverified in this environment.
+Current limitations: no T3 voting/comments, no T4 webhooks/certificates/embeds, and no email delivery for invitations. Invite links can be copied in the UI. A fully disconnected first Docker image build still requires preloaded base images and Python packages.

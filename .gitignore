@@ -33,6 +33,8 @@ data/.django-secret
 data/*.sqlite3
 data/chrome-preview-profile/
 data/gallery-preview.png
+data/demo_work/
+data/chrome-demo-profile/
 *.local
 
 # Django

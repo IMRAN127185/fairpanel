@@ -9,6 +9,10 @@ media
 staticfiles
 .env
 data/.django-secret
+data/demo_work
+data/chrome-demo-profile
+data/gallery-preview.png
+demo/*.mp4
 .dogfood.toml
 acceptance-report.txt
 *.log
